@@ -376,6 +376,14 @@ fun LaunchedEffect(vararg keys: Any?, block: suspend CoroutineScope.() -> Unit) 
     remember(*keys) { LaunchedEffectImpl(applyContext, block) }
 }
 
+// Maintenance note: this class once was used by the inlined implementation of
+// rememberCoroutineScope and must be maintained for binary compatibility. The new implementation
+// of RememberedCoroutineScope implements RememberObserver directly, since as of this writing the
+// compose runtime no longer implicitly treats objects incidentally stored in the slot table (e.g.
+// previous parameter values from a skippable invocation, remember keys, etc.) as eligible
+// RememberObservers. This dramatically reduces the risk of receiving unexpected RememberObserver
+// lifecycle callbacks when a reference to a RememberObserver is leaked into user code and we can
+// omit wrapper RememberObservers such as this one.
 @PublishedApi
 internal class CompositionScopedCoroutineScopeCanceller(val coroutineScope: CoroutineScope) :
     RememberObserver {
@@ -384,12 +392,29 @@ internal class CompositionScopedCoroutineScopeCanceller(val coroutineScope: Coro
     }
 
     override fun onForgotten() {
-        coroutineScope.cancel(LeftCompositionCancellationException())
+        val coroutineScope = coroutineScope
+        if (coroutineScope is RememberedCoroutineScope) {
+            coroutineScope.cancelIfCreated()
+        } else {
+            coroutineScope.cancel(LeftCompositionCancellationException())
+        }
     }
 
     override fun onAbandoned() {
-        coroutineScope.cancel(LeftCompositionCancellationException())
+        val coroutineScope = coroutineScope
+        if (coroutineScope is RememberedCoroutineScope) {
+            coroutineScope.cancelIfCreated()
+        } else {
+            coroutineScope.cancel(LeftCompositionCancellationException())
+        }
     }
+}
+
+internal expect class RememberedCoroutineScope(
+    parentContext: CoroutineContext,
+    overlayContext: CoroutineContext,
+) : CoroutineScope, RememberObserver {
+    fun cancelIfCreated()
 }
 
 @PublishedApi
@@ -411,7 +436,7 @@ internal fun createCompositionCoroutineScope(
         )
     } else {
         val applyContext = composer.applyCoroutineContext
-        CoroutineScope(applyContext + Job(applyContext[Job]) + coroutineContext)
+        RememberedCoroutineScope(applyContext, coroutineContext)
     }
 
 /**
@@ -444,10 +469,5 @@ inline fun rememberCoroutineScope(
     }
 ): CoroutineScope {
     val composer = currentComposer
-    val wrapper = remember {
-        CompositionScopedCoroutineScopeCanceller(
-            createCompositionCoroutineScope(getContext(), composer)
-        )
-    }
-    return wrapper.coroutineScope
+    return remember { createCompositionCoroutineScope(getContext(), composer) }
 }

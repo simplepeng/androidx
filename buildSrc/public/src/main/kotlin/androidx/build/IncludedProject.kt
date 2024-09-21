@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,18 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Add ext.libs for library versions
-def excludes = [:]
 
-excludes.espresso = {
-    exclude group: "androidx.annotation"
-    exclude group: "androidx.appcompat"
-    exclude group: "androidx.recyclerview"
-    exclude group: "androidx.legacy"
-    exclude group: "androidx.cardview"
-    exclude group: "androidx.fragment"
-    exclude group: "com.google.android.material"
-    exclude group: "androidx.core"
-}
+package androidx.build
 
-rootProject.ext["excludes"] = excludes
+/** Represents an included project from the main settings.gradle file. */
+data class IncludedProject(
+    /** Gradle path of the project (using : as separator) */
+    val gradlePath: String,
+    /** File path for the project, relative to support root folder. */
+    val filePath: String
+)
