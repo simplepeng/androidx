@@ -16,8 +16,8 @@
 
 package androidx.compose.foundation
 
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectTapAndPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import kotlin.jvm.JvmField
 
 /**
@@ -59,19 +59,11 @@ object ComposeFoundationFlags {
      * Selecting flag to enable the change in Fling Propagation behavior in nested Scrollables. When
      * this is true, an ongoing fling that causes the scrollable container to hit the bounds will be
      * cancelled so the next scrollable in the chain can take over and fling with velocity left. We
-     * are doing a flagged roll out of this behavior change.
+     * are doing a flagged roll out of this behavior change. A node that is detached during a fling
+     * will be treated as a node that hit its bounds, that is, it will cancel its fling and
+     * propagate the remaining velocity through onPostFling.
      */
     @Suppress("MutableBareField") @JvmField var NewNestedFlingPropagationEnabled = true
-
-    /**
-     * We have removed the implicit [graphicsLayer] from [BasicText]. This also affects the `Text`
-     * composable in material modules.
-     *
-     * This change ideally improves the initial rendering performance of [BasicText] but it may have
-     * negative effect on recomposition or redraw since [BasicText]s draw operations would not be
-     * cached in a separate layer.
-     */
-    @JvmField @Suppress("MutableBareField") var RemoveBasicTextGraphicsLayerEnabled: Boolean = true
 
     /**
      * Selecting flag to enable Drag Gesture "Pick-up" on drag gesture detectors. This also applies
@@ -81,4 +73,12 @@ object ComposeFoundationFlags {
      * continue the gesture until all pointers are up.
      */
     @Suppress("MutableBareField") @JvmField var DragGesturePickUpEnabled = true
+
+    /**
+     * Whether to use more immediate coroutine dispatching in [detectTapGestures] and
+     * [detectTapAndPress], true by default.
+     */
+    @Suppress("MutableBareField")
+    @JvmField
+    var isDetectTapGesturesImmediateCoroutineDispatchEnabled = true
 }

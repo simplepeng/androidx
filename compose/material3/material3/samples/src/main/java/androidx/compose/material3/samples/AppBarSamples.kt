@@ -20,12 +20,15 @@ import android.content.Context
 import android.view.accessibility.AccessibilityManager
 import androidx.annotation.Sampled
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -45,21 +48,27 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TopAppBarTitleAlignment
+import androidx.compose.material3.TwoRowsTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.datasource.LoremIpsum
 import androidx.compose.ui.unit.dp
 
 /**
@@ -241,7 +250,7 @@ fun SimpleCenterAlignedTopAppBarWithSubtitle() {
                     Text("Simple TopAppBar", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 subtitle = { Text("Subtitle", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                titleHorizontalAlignment = TopAppBarTitleAlignment.Center,
+                titleHorizontalAlignment = Alignment.CenterHorizontally,
                 navigationIcon = {
                     IconButton(onClick = { /* doSomething() */ }) {
                         Icon(
@@ -448,24 +457,24 @@ fun ExitUntilCollapsedMediumTopAppBar() {
 }
 
 /**
- * A sample for a [MediumTopAppBar] that collapses when the content is scrolled up, and appears when
- * the content is completely scrolled back down, centered with subtitle.
+ * A sample for a [MediumFlexibleTopAppBar] that collapses when the content is scrolled up, and
+ * appears when the content is completely scrolled back down, centered with subtitle.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Preview
 @Sampled
 @Composable
-fun ExitUntilCollapsedCenterAlignedMediumTopAppBarWithSubtitle() {
+fun ExitUntilCollapsedCenterAlignedMediumFlexibleTopAppBar() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            MediumTopAppBar(
+            MediumFlexibleTopAppBar(
                 title = {
                     Text("Medium TopAppBar", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 subtitle = { Text("Subtitle", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                titleHorizontalAlignment = TopAppBarTitleAlignment.Center,
+                titleHorizontalAlignment = Alignment.CenterHorizontally,
                 navigationIcon = {
                     IconButton(onClick = { /* doSomething() */ }) {
                         Icon(
@@ -556,22 +565,22 @@ fun ExitUntilCollapsedLargeTopAppBar() {
 }
 
 /**
- * A sample for a [LargeTopAppBar] that collapses when the content is scrolled up, and appears when
- * the content is completely scrolled back down, centered with subtitle.
+ * A sample for a [LargeFlexibleTopAppBar] that collapses when the content is scrolled up, and
+ * appears when the content is completely scrolled back down, centered with subtitle.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Preview
 @Sampled
 @Composable
-fun ExitUntilCollapsedCenterAlignedLargeTopAppBarWithSubtitle() {
+fun ExitUntilCollapsedCenterAlignedLargeFlexibleTopAppBar() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            LargeFlexibleTopAppBar(
                 title = { Text("Large TopAppBar", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 subtitle = { Text("Subtitle", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                titleHorizontalAlignment = TopAppBarTitleAlignment.Center,
+                titleHorizontalAlignment = Alignment.CenterHorizontally,
                 navigationIcon = {
                     IconButton(onClick = { /* doSomething() */ }) {
                         Icon(
@@ -603,6 +612,71 @@ fun ExitUntilCollapsedCenterAlignedLargeTopAppBarWithSubtitle() {
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                     )
+                }
+            }
+        }
+    )
+}
+
+/**
+ * A sample for a [TwoRowsTopAppBar] that collapses when the content is scrolled up, and appears
+ * when the content is completely scrolled back down.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Preview
+@Sampled
+@Composable
+fun CustomTwoRowsTopAppBar() {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            TwoRowsTopAppBar(
+                title = { expanded ->
+                    if (expanded) {
+                        Text("Expanded TopAppBar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    } else {
+                        Text("Collapsed TopAppBar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
+                subtitle = { expanded ->
+                    if (expanded) {
+                        Text(
+                            "Expanded Subtitle",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        )
+                    } else {
+                        Text("Collapsed Subtitle", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
+                height = { expanded ->
+                    if (expanded) {
+                        156.dp
+                    } else {
+                        64.dp
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = { /* doSomething() */ }) {
+                        Icon(
+                            imageVector = Icons.Filled.Menu,
+                            contentDescription = "Localized description"
+                        )
+                    }
+                },
+                scrollBehavior = scrollBehavior
+            )
+        },
+        content = { innerPadding ->
+            Column(
+                Modifier.fillMaxWidth().padding(innerPadding).verticalScroll(rememberScrollState())
+            ) {
+                CompositionLocalProvider(
+                    LocalTextStyle provides MaterialTheme.typography.bodyLarge
+                ) {
+                    Text(text = remember { LoremIpsum().values.first() })
                 }
             }
         }

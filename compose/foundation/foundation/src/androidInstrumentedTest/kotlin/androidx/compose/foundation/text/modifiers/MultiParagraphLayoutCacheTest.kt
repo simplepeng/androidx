@@ -16,9 +16,9 @@
 
 package androidx.compose.foundation.text.modifiers
 
-import androidx.compose.foundation.text.AutoSize
 import androidx.compose.foundation.text.DefaultMinLines
 import androidx.compose.foundation.text.TEST_FONT_FAMILY
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.toIntPx
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Paragraph
@@ -37,6 +37,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import kotlin.math.roundToInt
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -311,105 +312,124 @@ class MultiParagraphLayoutCacheTest {
         assertThat(layoutResultLtr.size.width).isEqualTo(layoutResultRtl.size.width)
     }
 
-    @Test
-    fun TextLayoutResult_autoSize_oneSizeLaidOut_checkOverflowAndHeight() {
-        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-        val text = "Hello World"
-
+    private fun testAutoSize_fontSizeFittingConstraints_doesntOverflow(
+        autoSize: TextAutoSize,
+        text: AnnotatedString,
+        constraints: Constraints,
+        overflow: TextOverflow = TextOverflow.Clip,
+        softWrap: Boolean = true
+    ) {
         val layoutCache =
             MultiParagraphLayoutCache(
-                    text = AnnotatedString(text),
+                    text = text,
                     style = TextStyle(fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSizePreset(arrayOf(25.6.sp))
-                )
-                .also { it.density = density }
-
-        // 25.6.sp doesn't overflow
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        var layoutResult = layoutCache.textLayoutResult
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(100)
-
-        layoutCache.updateAutoSize(
-            text = "Hello World",
-            fontSize = TextUnit.Unspecified,
-            autoSize = AutoSizePreset(arrayOf(25.7.sp))
-        )
-
-        // 25.7.sp does overflow
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        assertThat(layoutResult.hasVisualOverflow).isTrue()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(1000)
-    }
-
-    @Test
-    fun TextLayoutResult_autoSize_multipleSizesLaidOut_checkOverflowAndHeight() {
-        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-        val text = "Hello World"
-
-        val layoutCache =
-            MultiParagraphLayoutCache(
-                    text = AnnotatedString(text),
-                    style = TextStyle(fontFamily = fontFamily),
-                    fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSizePreset(arrayOf(23.5.sp, 22.sp, 25.6.sp))
-                )
-                .also { it.density = density }
-
-        // All font sizes shouldn't overflow
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        var layoutResult = layoutCache.textLayoutResult
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(100)
-
-        layoutCache.updateAutoSize(
-            text = text,
-            fontSize = TextUnit.Unspecified,
-            autoSize = AutoSizePreset(arrayOf(25.7.sp, 25.6.sp, 50.sp))
-        )
-
-        // Only 25.6.sp shouldn't overflow
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(100)
-
-        layoutCache.updateAutoSize(
-            text = text,
-            fontSize = TextUnit.Unspecified,
-            autoSize = AutoSizePreset(arrayOf(25.9.sp, 25.7.sp, 50.sp))
-        )
-
-        // All font sizes should overflow
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        assertThat(layoutResult.hasVisualOverflow).isTrue()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(1000)
-    }
-
-    @Test
-    fun TextLayoutResult_autoSize_MaxSizeConstraintsEqualTo50_doesOverflow() {
-        val constraints = Constraints(minWidth = 0, maxWidth = 50, minHeight = 0, maxHeight = 50)
-
-        val layoutCache =
-            MultiParagraphLayoutCache(
-                    text = AnnotatedString("Hello World"),
-                    style = TextStyle(fontSize = 20.sp, fontFamily = fontFamily),
-                    fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
+                    overflow = overflow,
+                    softWrap = softWrap,
+                    maxLines = 1,
+                    autoSize = autoSize
                 )
                 .also { it.density = density }
 
         layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
         val layoutResult = layoutCache.textLayoutResult
-        // this should overflow - 20.sp is too large a font size to use for the smaller constraints
+        assertThat(layoutResult.hasVisualOverflow).isFalse()
+        assertThat(layoutResult.size.width).isAtMost(constraints.maxWidth)
+        assertThat(layoutResult.size.height).isAtMost(constraints.maxHeight)
+        assertThat(layoutResult.multiParagraph.height).isAtMost(constraints.maxHeight)
+        assertThat(layoutResult.multiParagraph.width).isAtMost(constraints.maxWidth)
+        assertThat(layoutResult.lineCount).isEqualTo(1)
+    }
+
+    private fun testAutoSize_fontSizeNotFittingConstraints_overflows(
+        autoSize: TextAutoSize,
+        text: AnnotatedString,
+        constraints: Constraints
+    ) {
+        val layoutCache =
+            MultiParagraphLayoutCache(
+                    text = text,
+                    style = TextStyle(fontFamily = fontFamily),
+                    fontFamilyResolver = fontFamilyResolver,
+                    overflow = TextOverflow.Clip,
+                    softWrap = false,
+                    maxLines = 1,
+                    autoSize = autoSize
+                )
+                .also { it.density = density }
+
+        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
+        val layoutResult = layoutCache.textLayoutResult
         assertThat(layoutResult.hasVisualOverflow).isTrue()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(120)
+        assertThat(layoutResult.size.height).isLessThan(constraints.maxHeight)
+        assertThat(layoutResult.size.width).isEqualTo(constraints.maxWidth)
+        assertThat(layoutResult.multiParagraph.height).isLessThan(constraints.maxHeight)
+        assertThat(layoutResult.multiParagraph.width).isGreaterThan(constraints.maxWidth)
+        assertThat(layoutResult.lineCount).isEqualTo(1)
+    }
+
+    @Test
+    fun autoSize_singlePresetFontSize_fittingConstraints_doesntOverflow() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = "aaaaaaaaaaaa"
+        val widthPerCharacter =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+        val fittingConstraintsFontSize = widthPerCharacter * 0.8
+        val autoSize = AutoSizePreset(arrayOf(fittingConstraintsFontSize))
+        testAutoSize_fontSizeFittingConstraints_doesntOverflow(
+            autoSize = autoSize,
+            text = AnnotatedString(text),
+            constraints = constraints
+        )
+    }
+
+    @Test
+    fun autoSize_singlePresetFontSize_notFittingConstraints_overflows() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = "aaaaaaaaaaaa"
+        val widthPerCharacter =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+        val overflowingConstraintsFontSize = widthPerCharacter * 1.2
+        val autoSize = AutoSizePreset(arrayOf(overflowingConstraintsFontSize))
+        testAutoSize_fontSizeNotFittingConstraints_overflows(
+            autoSize = autoSize,
+            text = AnnotatedString(text),
+            constraints = constraints
+        )
+    }
+
+    @Test
+    fun autoSize_multipleFontSizes_fittingConstraints_doesntOverflow() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = "aaaaaaaaaaaa"
+        val widthPerCharacter =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+        val autoSize =
+            AutoSizePreset(
+                arrayOf(widthPerCharacter * 0.3, widthPerCharacter * 0.5, widthPerCharacter * 0.7)
+            )
+        testAutoSize_fontSizeFittingConstraints_doesntOverflow(
+            autoSize = autoSize,
+            text = AnnotatedString(text),
+            constraints = constraints
+        )
+    }
+
+    @Test
+    fun autoSize_multipleFontSizes_notFittingConstraints_overflows() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = "aaaaaaaaaaaa"
+        val widthPerCharacter =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+        val autoSize =
+            AutoSizePreset(
+                arrayOf(widthPerCharacter * 1.2, widthPerCharacter * 1.4, widthPerCharacter * 1.6)
+            )
+        testAutoSize_fontSizeNotFittingConstraints_overflows(
+            autoSize = autoSize,
+            text = AnnotatedString(text),
+            constraints = constraints
+        )
     }
 
     @Test
@@ -426,7 +446,7 @@ class MultiParagraphLayoutCacheTest {
                     style = TextStyle(fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
                     overflow = TextOverflow.Clip,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
+                    autoSize = TextAutoSize.StepBased(20.sp, 51.sp, 1.sp)
                 )
                 .also { it.density = density }
 
@@ -435,36 +455,6 @@ class MultiParagraphLayoutCacheTest {
         // this should overflow - 20.sp is too large of a font size to use for the longer text
         assertThat(layoutResult.hasVisualOverflow).isTrue()
         assertThat(layoutResult.multiParagraph.height).isEqualTo(600)
-    }
-
-    @Test
-    fun TextLayoutResult_autoSize_increaseConstraintsSize_checkOverflow() {
-        val smallConstraints =
-            Constraints(minWidth = 0, maxWidth = 50, minHeight = 0, maxHeight = 50)
-        val largeConstraints =
-            Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-
-        val layoutCache =
-            MultiParagraphLayoutCache(
-                    text = AnnotatedString("Hello World"),
-                    style = TextStyle(fontSize = 20.sp, fontFamily = fontFamily),
-                    fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
-                )
-                .also { it.density = density }
-
-        layoutCache.layoutWithConstraints(smallConstraints, LayoutDirection.Ltr)
-        var layoutResult = layoutCache.textLayoutResult
-        // this should overflow - 20.sp is too large a font size to use for the smaller constraints
-        assertThat(layoutResult.hasVisualOverflow).isTrue()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(120)
-
-        layoutCache.layoutWithConstraints(largeConstraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        // 25.sp is picked with the bigger constraints, this doesn't overflow
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(100)
     }
 
     @Test
@@ -480,7 +470,7 @@ class MultiParagraphLayoutCacheTest {
                     style = TextStyle(fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
                     overflow = TextOverflow.Ellipsis,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
+                    autoSize = TextAutoSize.StepBased(20.sp, 51.sp, 1.sp)
                 )
                 .also { it.density = density }
 
@@ -490,8 +480,10 @@ class MultiParagraphLayoutCacheTest {
         // This shouldn't overflow due to the ellipsis logic.
         // hasVisualOverflow unreliable here due to ellipsis logic. We'll test height manually
         // instead
+        assertThat(layoutResult.layoutInput.style.fontSize).isEqualTo(20.sp)
         assertThat(layoutResult.didOverflowWidth).isFalse()
         assertThat(layoutResult.multiParagraph.height).isEqualTo(100)
+        assertThat(layoutResult.lineCount).isEqualTo(5)
         assertThat(layoutResult.isLineEllipsized(4)).isTrue()
     }
 
@@ -509,7 +501,7 @@ class MultiParagraphLayoutCacheTest {
                     style = TextStyle(fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
                     overflow = TextOverflow.Visible,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
+                    autoSize = TextAutoSize.StepBased(20.sp, 51.sp, 1.sp)
                 )
                 .also { it.density = density }
 
@@ -530,7 +522,7 @@ class MultiParagraphLayoutCacheTest {
                     text = AnnotatedString(text),
                     style = TextStyle(fontSize = 5.sp, fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Clip,
                     autoSize = AutoSizePreset(arrayOf(5.12.em)) // = 25.6sp
                 )
                 .also { it.density = density }
@@ -544,14 +536,14 @@ class MultiParagraphLayoutCacheTest {
         layoutCache.updateAutoSize(
             text = text,
             fontSize = 5.sp,
-            autoSize = AutoSizePreset(arrayOf(5.14.em))
+            autoSize = AutoSizePreset(arrayOf(), fallbackFontSize = 5.14.em)
         )
 
         // 5.14 .em / 25.7.sp should overflow
         layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
         layoutResult = layoutCache.textLayoutResult
         assertThat(layoutResult.hasVisualOverflow).isTrue()
-        assertThat(layoutResult.multiParagraph.height).isEqualTo(1000)
+        assertThat(layoutResult.multiParagraph.height).isGreaterThan(100)
     }
 
     @Test(expected = IllegalStateException::class)
@@ -574,7 +566,12 @@ class MultiParagraphLayoutCacheTest {
     @Test
     fun TextLayoutResult_autoSize_em_style_fontSize_is_unspecified_checkOverflow() {
         val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-        val text = "Hello World"
+        // For a density of 1, our grid capacity can be calculated as:
+        // (height / fontSize) * (width / fontSize)
+        // This test uses TextUnit.Unspecified, which resolves to 16.sp during layout. With 16sp and
+        // a 100x100 rect, we have a character capacity of 39. At 2em, we have a character capacity
+        // of ~9.7, so we use a string with 10 chars to test.
+        val text = "aaaaaaaaaa"
 
         val layoutCache =
             MultiParagraphLayoutCache(
@@ -604,68 +601,6 @@ class MultiParagraphLayoutCacheTest {
     }
 
     @Test
-    fun TextLayoutResult_autoSize_em_withoutToPx_checkOverflow() {
-        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-        val text = "Hello World"
-
-        val layoutCache =
-            MultiParagraphLayoutCache(
-                    text = AnnotatedString(text),
-                    style = TextStyle(fontSize = 1.em, fontFamily = fontFamily),
-                    fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSizeWithoutToPx(2.em)
-                )
-                .also { it.density = density }
-
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        var layoutResult = layoutCache.textLayoutResult
-        // this shouldn't overflow
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-
-        layoutCache.updateAutoSize(
-            text = text,
-            fontSize = 1.em,
-            autoSize = AutoSizeWithoutToPx(3.em)
-        )
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        // this should overflow
-        assertThat(layoutResult.hasVisualOverflow).isTrue()
-    }
-
-    @Test
-    fun TextLayoutResult_autoSize_em_withoutToPx_unspecifiedStyleFontSize_checkOverflow() {
-        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
-        val text = "Hello World"
-
-        val layoutCache =
-            MultiParagraphLayoutCache(
-                    text = AnnotatedString(text),
-                    style = TextStyle(fontFamily = fontFamily),
-                    fontFamilyResolver = fontFamilyResolver,
-                    overflow = TextOverflow.Clip,
-                    autoSize = AutoSizeWithoutToPx(1.em)
-                )
-                .also { it.density = density }
-
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        var layoutResult = layoutCache.textLayoutResult
-        // this shouldn't overflow
-        assertThat(layoutResult.hasVisualOverflow).isFalse()
-
-        layoutCache.updateAutoSize(
-            text = text,
-            fontSize = TextUnit.Unspecified,
-            autoSize = AutoSizeWithoutToPx(2.em)
-        )
-        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
-        layoutResult = layoutCache.textLayoutResult
-        // this should overflow
-        assertThat(layoutResult.hasVisualOverflow).isTrue()
-    }
-
-    @Test
     fun TextLayoutResult_autoSize_minLines_greaterThan_1_checkOverflowAndHeight() {
         val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
 
@@ -675,7 +610,7 @@ class MultiParagraphLayoutCacheTest {
                     style = TextStyle(fontFamily = fontFamily),
                     fontFamilyResolver = fontFamilyResolver,
                     minLines = 2,
-                    autoSize = AutoSize.StepBased(20.sp, 51.sp, 1.sp)
+                    autoSize = TextAutoSize.StepBased(20.sp, 51.sp, 1.sp)
                 )
                 .also { it.density = density }
 
@@ -685,6 +620,84 @@ class MultiParagraphLayoutCacheTest {
         assertThat(layoutResult.multiParagraph.height)
             .isAtMost(55) // this value is different between
         // different API levels. Either 51 or 52. Using isAtMost to anticipate future permutations.
+    }
+
+    // Regression test for b/376834366
+    @Test
+    fun autoSize_maxLines_1_fittingConstraints_overflowBiasedWindow_doesntOverflow() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = AnnotatedString("aaaaaaaaaaaa")
+        // Assuming uniform character sizing (like in our test), this is the character size that
+        // technically fits the constraints for the given text.
+        val optimalCharacterSizeForText =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+
+        // In this test, we want a left-hand biased search window so that the first auto size
+        // layout should not overflow. With a left-hand biased window, the midpoint of the
+        // search will start further on the left and then move right, highlighting any potential
+        // caching issues.
+        val min = optimalCharacterSizeForText * 0.3
+        val max = optimalCharacterSizeForText * 1.3
+        val autoSize = TextAutoSize.StepBased(minFontSize = min, maxFontSize = max)
+
+        val autoSizeLayoutCache = createLayoutCache(text, autoSize, maxLines = 1)
+        autoSizeLayoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
+        val autoSizeLayoutResult = autoSizeLayoutCache.textLayoutResult
+        assertWithMessage("Layout Result (Auto Size) overflow")
+            .that(autoSizeLayoutResult.hasVisualOverflow)
+            .isFalse()
+        assertWithMessage("Font size used for auto size")
+            .that(autoSizeLayoutResult.layoutInput.style.fontSize.value)
+            .isAtMost(optimalCharacterSizeForText.value * 1.1f) // Use a slight tolerance
+        assertThat(autoSizeLayoutResult.layoutInput.constraints).isEqualTo(constraints)
+
+        val layoutCache =
+            createLayoutCache(text, style = autoSizeLayoutResult.layoutInput.style, maxLines = 1)
+        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
+        val layoutResult = layoutCache.textLayoutResult
+        assertWithMessage("Layout Result (No Auto Size) overflow")
+            .that(autoSizeLayoutResult.hasVisualOverflow)
+            .isFalse()
+        assertThat(layoutResult.layoutInput.constraints).isEqualTo(constraints)
+    }
+
+    // Regression test for b/376834366
+    @Test
+    fun autoSize_maxLines_1_fittingConstraints_underflowBiasedWindow_doesntOverflow() {
+        val constraints = Constraints(minWidth = 0, maxWidth = 100, minHeight = 0, maxHeight = 100)
+        val text = AnnotatedString("aaaaaaaaaaaa")
+        // Assuming uniform character sizing (like in our test), this is the character size that
+        // that technically fits the constraints for the given text.
+        val optimalCharacterSizeForText =
+            with(density) { (constraints.maxWidth / text.length.toFloat()).toSp() }
+
+        // In this test, we want a right-hand biased search window so that the first auto size
+        // layout should overflow. With a right-hand biased window, the midpoint of the
+        // search will start further on the right and then move left, highlighting any potential
+        // caching issues.
+        val min = optimalCharacterSizeForText * 0.9
+        val max = optimalCharacterSizeForText * 2
+        val autoSize = TextAutoSize.StepBased(minFontSize = min, maxFontSize = max)
+
+        val autoSizeLayoutCache = createLayoutCache(text, autoSize, maxLines = 1)
+        autoSizeLayoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
+        val autoSizeLayoutResult = autoSizeLayoutCache.textLayoutResult
+        assertWithMessage("Layout Result (Auto Size) overflow")
+            .that(autoSizeLayoutResult.hasVisualOverflow)
+            .isFalse()
+        assertWithMessage("Font size used for auto size")
+            .that(autoSizeLayoutResult.layoutInput.style.fontSize.value)
+            .isAtMost(optimalCharacterSizeForText.value * 1.1f) // Use a slight tolerance
+        assertThat(autoSizeLayoutResult.layoutInput.constraints).isEqualTo(constraints)
+
+        val layoutCache =
+            createLayoutCache(text, style = autoSizeLayoutResult.layoutInput.style, maxLines = 1)
+        layoutCache.layoutWithConstraints(constraints, LayoutDirection.Ltr)
+        val layoutResult = layoutCache.textLayoutResult
+        assertWithMessage("Layout Result (No Auto Size) overflow")
+            .that(autoSizeLayoutResult.hasVisualOverflow)
+            .isFalse()
+        assertThat(layoutResult.layoutInput.constraints).isEqualTo(constraints)
     }
 
     @Test
@@ -739,17 +752,35 @@ class MultiParagraphLayoutCacheTest {
     private fun MultiParagraphLayoutCache.updateAutoSize(
         text: String,
         fontSize: TextUnit,
-        autoSize: AutoSize
+        autoSize: TextAutoSize,
+        overflow: TextOverflow = TextOverflow.Clip,
+        softWrap: Boolean = true
     ) =
         update(
             text = AnnotatedString(text),
             style = TextStyle(fontSize = fontSize, fontFamily = fontFamily),
             fontFamilyResolver = fontFamilyResolver,
-            overflow = TextOverflow.Clip,
-            softWrap = true,
+            overflow = overflow,
+            softWrap = softWrap,
             maxLines = Int.MAX_VALUE,
             minLines = DefaultMinLines,
             placeholders = null,
             autoSize = autoSize
         )
+
+    private fun createLayoutCache(
+        text: AnnotatedString,
+        autoSize: TextAutoSize? = null,
+        style: TextStyle = TextStyle(fontFamily = fontFamily),
+        maxLines: Int = Int.MAX_VALUE
+    ): MultiParagraphLayoutCache {
+        return MultiParagraphLayoutCache(
+                text = text,
+                style = style,
+                fontFamilyResolver = fontFamilyResolver,
+                autoSize = autoSize,
+                maxLines = maxLines
+            )
+            .also { it.density = density }
+    }
 }

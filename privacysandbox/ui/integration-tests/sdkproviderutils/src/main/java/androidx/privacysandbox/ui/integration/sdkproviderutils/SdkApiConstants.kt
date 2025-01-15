@@ -34,6 +34,23 @@ class SdkApiConstants {
                 const val SDK_RUNTIME_MEDIATEE = 1
                 const val SDK_RUNTIME_MEDIATEE_WITH_OVERLAY = 2
                 const val IN_APP_MEDIATEE = 3
+                // Only supported for banner ads.
+                const val REFRESHABLE_MEDIATION = 4
+            }
+        }
+
+        annotation class ScreenOrientation {
+            companion object {
+                const val PORTRAIT = 0
+                const val LANDSCAPE = 1
+                const val USER = 2
+            }
+        }
+
+        annotation class BackNavigation {
+            companion object {
+                const val ENABLED = 0
+                const val ENABLED_AFTER_5_SECONDS = 1
             }
         }
     }

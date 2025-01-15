@@ -91,29 +91,37 @@ class CanvasInProgressStrokesRenderHelperV33TestActivity : Activity() {
             override fun draw(
                 canvas: Canvas,
                 stroke: Stroke,
-                strokeToCanvasTransform: AffineTransform
+                strokeToScreenTransform: AffineTransform,
+                animationProgress: Float,
             ) {
-                renderer?.draw(canvas, stroke, strokeToCanvasTransform)
+                renderer?.draw(canvas, stroke, strokeToScreenTransform, animationProgress)
             }
 
-            override fun draw(canvas: Canvas, stroke: Stroke, strokeToCanvasTransform: Matrix) {
-                renderer?.draw(canvas, stroke, strokeToCanvasTransform)
+            override fun draw(
+                canvas: Canvas,
+                stroke: Stroke,
+                strokeToScreenTransform: Matrix,
+                animationProgress: Float,
+            ) {
+                renderer?.draw(canvas, stroke, strokeToScreenTransform, animationProgress)
             }
 
             override fun draw(
                 canvas: Canvas,
                 inProgressStroke: InProgressStroke,
-                strokeToCanvasTransform: AffineTransform,
+                strokeToScreenTransform: AffineTransform,
+                animationProgress: Float,
             ) {
-                renderer?.draw(canvas, inProgressStroke, strokeToCanvasTransform)
+                renderer?.draw(canvas, inProgressStroke, strokeToScreenTransform, animationProgress)
             }
 
             override fun draw(
                 canvas: Canvas,
                 inProgressStroke: InProgressStroke,
-                strokeToCanvasTransform: Matrix,
+                strokeToScreenTransform: Matrix,
+                animationProgress: Float,
             ) {
-                renderer?.draw(canvas, inProgressStroke, strokeToCanvasTransform)
+                renderer?.draw(canvas, inProgressStroke, strokeToScreenTransform, animationProgress)
             }
         }
 

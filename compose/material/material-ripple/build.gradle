@@ -21,17 +21,31 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
 
 plugins {
     id("AndroidXPlugin")
-    id("com.android.library")
     id("AndroidXComposePlugin")
 }
 
 androidXMultiplatform {
-    android()
+    androidLibrary {
+        namespace = "androidx.compose.material.ripple"
+        withAndroidTestOnDeviceBuilder {
+            it.compilationName = "instrumentedTest"
+            it.defaultSourceSetName = "androidInstrumentedTest"
+            it.sourceSetTreeName = "test"
+        }
+        withAndroidTestOnJvmBuilder {
+            it.defaultSourceSetName = "androidUnitTest"
+        }
+
+        compileSdk = 35
+        aarMetadata.minCompileSdk = 35
+    }
     jvmStubs()
     linuxX64Stubs()
 
@@ -110,10 +124,6 @@ androidx {
     inceptionYear = "2020"
     description = "Material ripple used to build interactive components"
     legacyDisableKotlinStrictApiMode = true
-    metalavaK2UastEnabled = false
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }
 
-android {
-    compileSdk 35
-    namespace "androidx.compose.material.ripple"
-}

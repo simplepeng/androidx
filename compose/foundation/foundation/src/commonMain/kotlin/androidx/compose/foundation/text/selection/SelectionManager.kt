@@ -22,8 +22,9 @@ import androidx.collection.emptyLongObjectMap
 import androidx.collection.mutableLongIntMapOf
 import androidx.collection.mutableLongObjectMapOf
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitAllPointersUpWithSlopDetection
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.awaitPrimaryFirstDown
 import androidx.compose.foundation.internal.checkPreconditionNotNull
 import androidx.compose.foundation.internal.requirePrecondition
 import androidx.compose.foundation.internal.requirePreconditionNotNull
@@ -49,14 +50,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.text.AnnotatedString
@@ -118,8 +118,8 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
     /** [HapticFeedback] handle to perform haptic feedback. */
     var hapticFeedBack: HapticFeedback? = null
 
-    /** [ClipboardManager] to perform clipboard features. */
-    var clipboardManager: ClipboardManager? = null
+    /** A handler to perform a Copy action */
+    var onCopyHandler: ((AnnotatedString) -> Unit)? = null
 
     /** [TextToolbar] to show floating toolbar(post-M) or primary toolbar(pre-M). */
     var textToolbar: TextToolbar? = null
@@ -127,8 +127,12 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
     /** Focus requester used to request focus when selection becomes active. */
     var focusRequester: FocusRequester = FocusRequester()
 
-    /** Return true if the corresponding SelectionContainer is focused. */
+    /** Return true if the corresponding SelectionContainer has a child that is focused. */
     var hasFocus: Boolean by mutableStateOf(false)
+
+    /** Return true if dragging gesture is currently in process. */
+    private val isDraggingInProgress
+        get() = draggingHandle != null
 
     /** Modifier for selection container. */
     val modifier
@@ -137,10 +141,10 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
                 .onGloballyPositioned { containerLayoutCoordinates = it }
                 .focusRequester(focusRequester)
                 .onFocusChanged { focusState ->
-                    if (!focusState.isFocused && hasFocus) {
+                    if (!focusState.hasFocus && hasFocus) {
                         onRelease()
                     }
-                    hasFocus = focusState.isFocused
+                    this.hasFocus = focusState.hasFocus
                 }
                 .focusable()
                 .updateSelectionTouchMode { isInTouchMode = it }
@@ -207,6 +211,22 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
     var draggingHandle: Handle? by mutableStateOf(null)
         private set
 
+    /** Line height on start handle position */
+    val startHandleLineHeight: Float
+        get() {
+            val selection = this.selection ?: return 0f
+            val selectable = selection.start.let(::getAnchorSelectable) ?: return 0f
+            return selectable.getLineHeight(selection.start.offset)
+        }
+
+    /** Line height on end handle position */
+    val endHandleLineHeight: Float
+        get() {
+            val selection = this.selection ?: return 0f
+            val selectable = selection.end.let(::getAnchorSelectable) ?: return 0f
+            return selectable.getLineHeight(selection.end.offset)
+        }
+
     /**
      * When a handle is being dragged (i.e. [draggingHandle] is non-null), this is the last position
      * of the actual drag event. It is not clamped to handle positions. Null when not being dragged.
@@ -215,7 +235,7 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
         private set
 
     private val shouldShowMagnifier
-        get() = draggingHandle != null && isInTouchMode && !isTriviallyCollapsedSelection()
+        get() = isDraggingInProgress && isInTouchMode && !isTriviallyCollapsedSelection()
 
     @VisibleForTesting internal var previousSelectionLayout: SelectionLayout? = null
 
@@ -545,7 +565,9 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
     }
 
     internal fun copy() {
-        getSelectedText()?.takeIf { it.isNotEmpty() }?.let { clipboardManager?.setText(it) }
+        getSelectedText()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { textToCopy -> onCopyHandler?.invoke(textToCopy) }
     }
 
     /**
@@ -575,6 +597,7 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
                 rect = rect,
                 onCopyRequested = if (isNonEmptySelection()) ::toolbarCopy else null,
                 onSelectAllRequested = if (isEntireContainerSelected()) null else ::selectAll,
+                onAutofillRequested = null
             )
         } else if (textToolbar.status == TextToolbarStatus.Shown) {
             textToolbar.hide()
@@ -722,14 +745,24 @@ internal class SelectionManager(private val selectionRegistrar: SelectionRegistr
             override fun onCancel() = done()
         }
 
-    /** Detect tap without consuming the up event. */
-    private suspend fun PointerInputScope.detectNonConsumingTap(onTap: (Offset) -> Unit) {
-        awaitEachGesture { waitForUpOrCancellation()?.let { onTap(it.position) } }
-    }
+    /** Clear the selection on up event that isn't a drag-end. */
+    private fun Modifier.onClearSelectionRequested(block: () -> Unit): Modifier =
+        pointerInput(Unit) {
+            awaitEachGesture {
+                // Wait for primary pointer to be down. It's required to explicitly filter
+                // secondary mouse button to make context menu work correctly.
+                val primaryFirstDown = awaitPrimaryFirstDown(requireUnconsumed = false)
 
-    private fun Modifier.onClearSelectionRequested(block: () -> Unit): Modifier {
-        return if (hasFocus) pointerInput(Unit) { detectNonConsumingTap { block() } } else this
-    }
+                // Wait for all pointers to be up, and if we're not dragging, clear the selection.
+                // Do it in the initial phase so that when this happens while dragging, we check
+                // isDraggingInProgress before the drag-end event clears it.
+                val pointerSlopReached =
+                    awaitAllPointersUpWithSlopDetection(primaryFirstDown, PointerEventPass.Initial)
+                if (!pointerSlopReached && !isDraggingInProgress) {
+                    block()
+                }
+            }
+        }
 
     private fun convertToContainerCoordinates(
         layoutCoordinates: LayoutCoordinates,

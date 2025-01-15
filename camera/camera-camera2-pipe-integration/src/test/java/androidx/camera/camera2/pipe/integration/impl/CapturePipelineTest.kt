@@ -31,6 +31,7 @@ import android.view.Surface
 import androidx.camera.camera2.pipe.AeMode
 import androidx.camera.camera2.pipe.AfMode
 import androidx.camera.camera2.pipe.AwbMode
+import androidx.camera.camera2.pipe.FrameInfo
 import androidx.camera.camera2.pipe.FrameMetadata
 import androidx.camera.camera2.pipe.FrameNumber
 import androidx.camera.camera2.pipe.Lock3ABehavior
@@ -44,18 +45,11 @@ import androidx.camera.camera2.pipe.integration.adapter.CaptureResultAdapter
 import androidx.camera.camera2.pipe.integration.adapter.RobolectricCameraPipeTestRunner
 import androidx.camera.camera2.pipe.integration.adapter.ZslControl
 import androidx.camera.camera2.pipe.integration.adapter.asListenableFuture
-import androidx.camera.camera2.pipe.integration.compat.StreamConfigurationMapCompat
-import androidx.camera.camera2.pipe.integration.compat.quirk.CameraQuirks
-import androidx.camera.camera2.pipe.integration.compat.workaround.AeFpsRange
 import androidx.camera.camera2.pipe.integration.compat.workaround.CapturePipelineTorchCorrection
-import androidx.camera.camera2.pipe.integration.compat.workaround.Lock3ABehaviorWhenCaptureImage
-import androidx.camera.camera2.pipe.integration.compat.workaround.Lock3ABehaviorWhenCaptureImage.Companion.doNotLockAe3ABehavior
-import androidx.camera.camera2.pipe.integration.compat.workaround.Lock3ABehaviorWhenCaptureImage.Companion.noCustomizedLock3ABehavior
 import androidx.camera.camera2.pipe.integration.compat.workaround.NoOpAutoFlashAEModeDisabler
 import androidx.camera.camera2.pipe.integration.compat.workaround.NoOpTemplateParamsOverride
 import androidx.camera.camera2.pipe.integration.compat.workaround.NotUseFlashModeTorchFor3aUpdate
 import androidx.camera.camera2.pipe.integration.compat.workaround.NotUseTorchAsFlash
-import androidx.camera.camera2.pipe.integration.compat.workaround.OutputSizesCorrector
 import androidx.camera.camera2.pipe.integration.compat.workaround.UseTorchAsFlash
 import androidx.camera.camera2.pipe.integration.compat.workaround.UseTorchAsFlashImpl
 import androidx.camera.camera2.pipe.integration.config.UseCaseGraphConfig
@@ -114,7 +108,6 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.internal.DoNotInstrument
-import org.robolectric.shadows.StreamConfigurationMapBuilder
 import org.robolectric.util.ReflectionHelpers
 
 @OptIn(ExperimentalCoroutinesApi::class, ExperimentalCamera2Interop::class)
@@ -163,9 +156,6 @@ class CapturePipelineTest {
             var waitForAwbAtLock3AForCapture: Boolean = false
 
             var cancelAfAtUnlock3AForCapture: Boolean = false
-            var aeLockBehavior: Lock3ABehavior? = null
-            var afLockBehavior: Lock3ABehavior? = null
-            var awbLockBehavior: Lock3ABehavior? = null
 
             override suspend fun lock3A(
                 aeMode: AeMode?,
@@ -184,9 +174,6 @@ class CapturePipelineTest {
                 convergedTimeLimitNs: Long,
                 lockedTimeLimitNs: Long
             ): Deferred<Result3A> {
-                this.aeLockBehavior = aeLockBehavior
-                this.afLockBehavior = afLockBehavior
-                this.awbLockBehavior = awbLockBehavior
                 lock3ASemaphore.release()
                 return CompletableDeferred(Result3A(Result3A.Status.OK))
             }
@@ -272,6 +259,10 @@ class CapturePipelineTest {
                 // Do nothing
             }
 
+            override fun clearZslConfig() {
+                // Do nothing
+            }
+
             override fun isZslSurface(
                 surface: DeferrableSurface,
                 sessionConfig: SessionConfig
@@ -328,18 +319,6 @@ class CapturePipelineTest {
             State3AControl(
                     fakeCameraProperties,
                     NoOpAutoFlashAEModeDisabler,
-                    AeFpsRange(
-                        CameraQuirks(
-                            FakeCameraMetadata(),
-                            StreamConfigurationMapCompat(
-                                StreamConfigurationMapBuilder.newBuilder().build(),
-                                OutputSizesCorrector(
-                                    FakeCameraMetadata(),
-                                    StreamConfigurationMapBuilder.newBuilder().build()
-                                )
-                            )
-                        )
-                    ),
                 )
                 .apply { requestControl = fakeRequestControl }
 
@@ -484,6 +463,8 @@ class CapturePipelineTest {
         val requestList = mutableListOf<Request>()
         fakeCameraGraphSession.requestHandler = { requests -> requestList.addAll(requests) }
 
+        comboRequestListener.simulate3aConvergence()
+
         // Act.
         capturePipeline.submitStillCaptures(
             configs = listOf(singleConfig),
@@ -592,75 +573,119 @@ class CapturePipelineTest {
     }
 
     @Test
-    fun miniLatency_flashRequired_withFlashTypeTorch_shouldLock3A(): Unit = runTest {
-        withFlashTypeTorch_shouldLock3A(
-            capturePipeline,
-            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
-            ImageCapture.FLASH_MODE_ON,
-            expectedLock3ABehaviors =
-                Triple(
-                    Lock3ABehavior.AFTER_CURRENT_SCAN,
-                    Lock3ABehavior.AFTER_CURRENT_SCAN,
-                    Lock3ABehavior.AFTER_CURRENT_SCAN
-                )
-        )
-    }
-
-    @Test
-    fun miniLatency_flashRequired_withFlashTypeTorch_doNotLockAe3ABehavior_shouldLock3A(): Unit =
+    fun miniLatency_flashRequired_withFlashTypeTorchAndNoQuirk_shouldLock3AForCapture(): Unit =
         runTest {
-            val capturePipeline =
-                createCapturePipeline(lock3ABehaviorWhenCaptureImage = doNotLockAe3ABehavior)
-            withFlashTypeTorch_shouldLock3A(
+            withFlashTypeTorch_shouldLock3AAsNeeded(
                 capturePipeline,
                 ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
                 ImageCapture.FLASH_MODE_ON,
-                expectedLock3ABehaviors =
-                    Triple(
-                        null,
-                        Lock3ABehavior.AFTER_CURRENT_SCAN,
-                        Lock3ABehavior.AFTER_CURRENT_SCAN
-                    )
+                shouldLock3AForCapture = true,
             )
         }
 
     @Test
-    fun maxQuality_withFlashTypeTorch_shouldLock3A(): Unit = runTest {
-        withFlashTypeTorch_shouldLock3A(
+    fun miniLatency_flashRequired_withFlashTypeTorchAndQuirk_shouldNotLock3A(): Unit = runTest {
+        capturePipeline = createCapturePipeline(useTorchAsFlash = UseTorchAsFlashImpl)
+
+        withFlashTypeTorch_shouldLock3AAsNeeded(
             capturePipeline,
-            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY,
-            ImageCapture.FLASH_MODE_OFF,
-            expectedLock3ABehaviors =
-                Triple(
-                    Lock3ABehavior.AFTER_CURRENT_SCAN,
-                    Lock3ABehavior.AFTER_CURRENT_SCAN,
-                    Lock3ABehavior.AFTER_CURRENT_SCAN
-                )
+            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
+            ImageCapture.FLASH_MODE_ON,
+            shouldLock3A = false,
         )
     }
 
     @Test
-    fun maxQuality_withFlashTypeTorch_doNotLockAe3ABehavior_shouldLock3A(): Unit = runTest {
-        val capturePipeline =
-            createCapturePipeline(lock3ABehaviorWhenCaptureImage = doNotLockAe3ABehavior)
-        withFlashTypeTorch_shouldLock3A(
+    fun miniLatency_flashRequired_withFlashTypeTorchAndQuirk_worksViaTimeoutWithout3aConverge():
+        Unit = runTest {
+        capturePipeline = createCapturePipeline(useTorchAsFlash = UseTorchAsFlashImpl)
+
+        withFlashTypeTorch_shouldLock3AAsNeeded(
             capturePipeline,
-            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY,
-            ImageCapture.FLASH_MODE_OFF,
-            expectedLock3ABehaviors =
-                Triple(null, Lock3ABehavior.AFTER_CURRENT_SCAN, Lock3ABehavior.AFTER_CURRENT_SCAN)
+            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
+            ImageCapture.FLASH_MODE_ON,
+            shouldLock3A = false,
+            simulate3aConvergence = false,
         )
     }
 
-    private suspend fun TestScope.withFlashTypeTorch_shouldLock3A(
+    @Test
+    fun miniLatency_flashRequired_withFlashTypeTorchAndQuirk_listenerRemovedAfterTimeout(): Unit =
+        runTest {
+            capturePipeline = createCapturePipeline(useTorchAsFlash = UseTorchAsFlashImpl)
+            val initialListenerSize = comboRequestListener.listeners.size
+
+            withFlashTypeTorch_shouldLock3AAsNeeded(
+                capturePipeline,
+                ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
+                ImageCapture.FLASH_MODE_ON,
+                shouldLock3A = false,
+                simulate3aConvergence = false,
+            )
+
+            assertThat(comboRequestListener.listeners.size).isEqualTo(initialListenerSize)
+        }
+
+    @Test
+    fun maxQuality_flashOffWithFlashTypeTorchAndNoQuirk_shouldLock3A(): Unit = runTest {
+        withFlashTypeTorch_shouldLock3AAsNeeded(
+            capturePipeline,
+            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY,
+            ImageCapture.FLASH_MODE_OFF,
+            shouldLock3AForCapture = false,
+        )
+    }
+
+    @Test
+    fun maxQuality_withFlashTypeTorch_shouldLock3AForCapture(): Unit = runTest {
+        withFlashTypeTorch_shouldLock3AAsNeeded(
+            capturePipeline,
+            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY,
+            ImageCapture.FLASH_MODE_ON,
+            shouldLock3AForCapture = true,
+        )
+    }
+
+    @Test
+    fun maxQuality_withFlashTypeTorchAndQuirk_shouldLock3A(): Unit = runTest {
+        capturePipeline = createCapturePipeline(useTorchAsFlash = UseTorchAsFlashImpl)
+
+        withFlashTypeTorch_shouldLock3AAsNeeded(
+            capturePipeline,
+            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY,
+            ImageCapture.FLASH_MODE_ON,
+        )
+    }
+
+    /**
+     * Tests whether 3A is locked or AE pre-capture is triggered (i.e. lock3AForCapture) for image
+     * captures with flash type torch based on requirements.
+     *
+     * @param shouldLock3AForCapture Whether capture-specific 3A locking should be used which uses
+     *   AE pre-capture. This is not used in most workaround cases (thus false by default) while
+     *   still used in a few safer cases.
+     * @param shouldLock3A Whether 3A should be locked. No 3A locking may be required for minimum
+     *   latency image capture mode. By default, this value depends on [imageCaptureMode] and
+     *   [shouldLock3AForCapture].
+     * @param simulate3aConvergence Whether 3A convergence should be simulated, true by default.
+     */
+    private suspend fun TestScope.withFlashTypeTorch_shouldLock3AAsNeeded(
         capturePipeline: CapturePipeline,
         imageCaptureMode: Int,
         flashMode: Int,
-        expectedLock3ABehaviors: Triple<Lock3ABehavior?, Lock3ABehavior?, Lock3ABehavior?>,
+        shouldLock3AForCapture: Boolean = false,
+        shouldLock3A: Boolean =
+            imageCaptureMode == ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY &&
+                !shouldLock3AForCapture,
+        simulate3aConvergence: Boolean = true,
     ) {
         // Arrange.
         val requestList = mutableListOf<Request>()
         fakeCameraGraphSession.requestHandler = { requests -> requestList.addAll(requests) }
+
+        if (simulate3aConvergence) {
+            comboRequestListener.simulate3aConvergence()
+        }
 
         // Act.
         capturePipeline.submitStillCaptures(
@@ -673,20 +698,42 @@ class CapturePipelineTest {
         )
 
         // Assert 1, should call lock3A, but not call unlock3A (before capturing is finished).
-        assertThat(fakeCameraGraphSession.lock3ASemaphore.tryAcquire(this)).isTrue()
+        if (shouldLock3A) {
+            assertThat(fakeCameraGraphSession.lock3ASemaphore.tryAcquire(this)).isTrue()
+        } else {
+            assertThat(fakeCameraGraphSession.lock3ASemaphore.tryAcquire(this)).isFalse()
+        }
+
+        if (shouldLock3AForCapture) {
+            assertThat(fakeCameraGraphSession.lock3AForCaptureSemaphore.tryAcquire(this)).isTrue()
+        } else {
+            assertThat(fakeCameraGraphSession.lock3AForCaptureSemaphore.tryAcquire(this)).isFalse()
+        }
+
+        // Shouldn't unlock util the capture request is submitted.
         assertThat(fakeCameraGraphSession.unlock3ASemaphore.tryAcquire(this)).isFalse()
-        // Ensure correct Lock3ABehaviors are set.
-        assertThat(fakeCameraGraphSession.aeLockBehavior).isEqualTo(expectedLock3ABehaviors.first)
-        assertThat(fakeCameraGraphSession.afLockBehavior).isEqualTo(expectedLock3ABehaviors.second)
-        assertThat(fakeCameraGraphSession.awbLockBehavior).isEqualTo(expectedLock3ABehaviors.third)
+        assertThat(fakeCameraGraphSession.unlock3APostCaptureSemaphore.tryAcquire(this)).isFalse()
 
         // Complete the capture request.
         assertThat(fakeCameraGraphSession.submitSemaphore.tryAcquire(this)).isTrue()
         requestList.complete()
 
         advanceUntilIdle()
-        // Assert 2, should call unlock3A.
-        assertThat(fakeCameraGraphSession.unlock3ASemaphore.tryAcquire(this)).isTrue()
+
+        // Assert 2, should call unlock3A as required.
+        if (shouldLock3A) {
+            assertThat(fakeCameraGraphSession.unlock3ASemaphore.tryAcquire(this)).isTrue()
+        } else {
+            assertThat(fakeCameraGraphSession.unlock3ASemaphore.tryAcquire(this)).isFalse()
+        }
+
+        if (shouldLock3AForCapture) {
+            assertThat(fakeCameraGraphSession.unlock3APostCaptureSemaphore.tryAcquire(this))
+                .isTrue()
+        } else {
+            assertThat(fakeCameraGraphSession.unlock3APostCaptureSemaphore.tryAcquire(this))
+                .isFalse()
+        }
     }
 
     @Test
@@ -1266,7 +1313,6 @@ class CapturePipelineTest {
 
     private fun createCapturePipeline(
         useTorchAsFlash: UseTorchAsFlash = NotUseTorchAsFlash,
-        lock3ABehaviorWhenCaptureImage: Lock3ABehaviorWhenCaptureImage = noCustomizedLock3ABehavior
     ) =
         CapturePipelineImpl(
             configAdapter = fakeCaptureConfigAdapter,
@@ -1277,9 +1323,9 @@ class CapturePipelineTest {
             useCaseGraphConfig = fakeUseCaseGraphConfig,
             useCaseCameraState = fakeUseCaseCameraState,
             useTorchAsFlash = useTorchAsFlash,
-            lock3ABehaviorWhenCaptureImage = lock3ABehaviorWhenCaptureImage,
             sessionProcessorManager = null,
             flashControl = flashControl,
+            videoUsageControl = VideoUsageControl(),
         )
 
     // TODO(wenhungteng@): Porting overrideAeModeForStillCapture_quirkAbsent_notOverride,
@@ -1300,11 +1346,23 @@ class CapturePipelineTest {
         }
     }
 
+    private fun ComboRequestListener.simulate3aConvergence() {
+        simulateRepeatingResult(
+            resultParameters =
+                mapOf(
+                    CaptureResult.CONTROL_AE_STATE to CaptureResult.CONTROL_AE_STATE_CONVERGED,
+                    CaptureResult.CONTROL_AF_STATE to CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED,
+                    CaptureResult.CONTROL_AWB_STATE to CaptureResult.CONTROL_AWB_STATE_CONVERGED,
+                )
+        )
+    }
+
     private fun ComboRequestListener.simulateRepeatingResult(
         initialDelay: Long = 100,
         period: Long = 100, // in milliseconds
         requestParameters: Map<CaptureRequest.Key<*>, Any> = mutableMapOf(),
         resultParameters: Map<CaptureResult.Key<*>, Any> = mutableMapOf(),
+        onResultSubmitted: (FrameInfo) -> Unit = {},
     ) {
         let { listener ->
             runningRepeatingJob =
@@ -1331,6 +1389,7 @@ class CapturePipelineTest {
                             frameNumber = FrameNumber(101L),
                             totalCaptureResult = fakeFrameInfo,
                         )
+                        onResultSubmitted(fakeFrameInfo)
                         delay(period)
                     }
                 }

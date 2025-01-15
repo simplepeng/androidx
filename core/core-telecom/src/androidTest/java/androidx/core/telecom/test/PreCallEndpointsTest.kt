@@ -17,27 +17,42 @@
 package androidx.core.telecom.test
 
 import android.os.Build
+import android.os.Build.VERSION_CODES
 import androidx.annotation.RequiresApi
 import androidx.core.telecom.CallEndpointCompat
-import androidx.core.telecom.internal.PreCallEndpoints
+import androidx.core.telecom.CallEndpointCompat.Companion.TYPE_BLUETOOTH
+import androidx.core.telecom.CallEndpointCompat.Companion.TYPE_EARPIECE
+import androidx.core.telecom.CallEndpointCompat.Companion.TYPE_SPEAKER
+import androidx.core.telecom.internal.CallEndpointUuidTracker
+import androidx.core.telecom.internal.PreCallEndpointsUpdater
+import androidx.test.filters.SdkSuppress
 import androidx.test.filters.SmallTest
 import kotlinx.coroutines.channels.Channel
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@SdkSuppress(minSdkVersion = VERSION_CODES.O /* api=26 */)
 @RequiresApi(Build.VERSION_CODES.O)
 class PreCallEndpointsTest {
-    private val defaultEarpiece = CallEndpointCompat("E", CallEndpointCompat.TYPE_EARPIECE)
-    private val defaultSpeaker = CallEndpointCompat("S", CallEndpointCompat.TYPE_SPEAKER)
-    private val defaultBluetooth = CallEndpointCompat("B", CallEndpointCompat.TYPE_BLUETOOTH)
+    val mSessionId: Int = 111
+
+    @After
+    fun tearDown() {
+        CallEndpointUuidTracker.endSession(mSessionId)
+    }
+
+    private val defaultEarpiece = CallEndpointCompat("E", TYPE_EARPIECE, mSessionId)
+    private val defaultSpeaker = CallEndpointCompat("S", TYPE_SPEAKER, mSessionId)
+    private val defaultBluetooth = CallEndpointCompat("B", TYPE_BLUETOOTH, mSessionId)
 
     @SmallTest
     @Test
     fun testInitialValues() {
         val initEndpoints = mutableListOf(defaultEarpiece, defaultSpeaker, defaultBluetooth)
-        val currentPreCallEndpoints = PreCallEndpoints(initEndpoints, Channel())
+        val currentPreCallEndpoints = PreCallEndpointsUpdater(initEndpoints, Channel())
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultEarpiece))
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultSpeaker))
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultBluetooth))
@@ -50,51 +65,51 @@ class PreCallEndpointsTest {
     @Test
     fun testEndpointsAddedWithNewEndpoint() {
         val initEndpoints = mutableListOf(defaultEarpiece)
-        val currentPreCallEndpoints = PreCallEndpoints(initEndpoints, Channel())
+        val currentPreCallEndpoints = PreCallEndpointsUpdater(initEndpoints, Channel())
 
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultEarpiece))
         assertFalse(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultSpeaker))
 
         val res = currentPreCallEndpoints.maybeAddCallEndpoint(defaultSpeaker)
-        assertEquals(PreCallEndpoints.START_TRACKING_NEW_ENDPOINT, res)
+        assertEquals(PreCallEndpointsUpdater.START_TRACKING_NEW_ENDPOINT, res)
     }
 
     @SmallTest
     @Test
     fun testEndpointsAddedWithNoNewEndpoints() {
         val initEndpoints = mutableListOf(defaultEarpiece, defaultSpeaker)
-        val currentPreCallEndpoints = PreCallEndpoints(initEndpoints, Channel())
+        val currentPreCallEndpoints = PreCallEndpointsUpdater(initEndpoints, Channel())
 
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultEarpiece))
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultSpeaker))
 
         val res = currentPreCallEndpoints.maybeAddCallEndpoint(defaultSpeaker)
-        assertEquals(PreCallEndpoints.ALREADY_TRACKING_ENDPOINT, res)
+        assertEquals(PreCallEndpointsUpdater.ALREADY_TRACKING_ENDPOINT, res)
     }
 
     @SmallTest
     @Test
     fun testEndpointsRemovedWithUntrackedEndpoint() {
         val initEndpoints = mutableListOf(defaultEarpiece)
-        val currentPreCallEndpoints = PreCallEndpoints(initEndpoints, Channel())
+        val currentPreCallEndpoints = PreCallEndpointsUpdater(initEndpoints, Channel())
 
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultEarpiece))
         assertFalse(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultSpeaker))
 
         val res = currentPreCallEndpoints.maybeRemoveCallEndpoint(defaultSpeaker)
-        assertEquals(PreCallEndpoints.NOT_TRACKING_REMOVED_ENDPOINT, res)
+        assertEquals(PreCallEndpointsUpdater.NOT_TRACKING_REMOVED_ENDPOINT, res)
     }
 
     @SmallTest
     @Test
     fun testEndpointsRemovedWithTrackedEndpoint() {
         val initEndpoints = mutableListOf(defaultEarpiece, defaultSpeaker)
-        val currentPreCallEndpoints = PreCallEndpoints(initEndpoints, Channel())
+        val currentPreCallEndpoints = PreCallEndpointsUpdater(initEndpoints, Channel())
 
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultEarpiece))
         assertTrue(currentPreCallEndpoints.isCallEndpointBeingTracked(defaultSpeaker))
 
         val res = currentPreCallEndpoints.maybeRemoveCallEndpoint(defaultSpeaker)
-        assertEquals(PreCallEndpoints.STOP_TRACKING_REMOVED_ENDPOINT, res)
+        assertEquals(PreCallEndpointsUpdater.STOP_TRACKING_REMOVED_ENDPOINT, res)
     }
 }

@@ -32,19 +32,32 @@ plugins {
 dependencies {
     api(libs.kotlinStdlib)
     api(project(":pdf:pdf-viewer"))
+    api(project(":pdf:pdf-document-service"))
     api("androidx.core:core:1.13.1")
 
     implementation("androidx.fragment:fragment-ktx:1.8.1")
     implementation("com.google.android.material:material:1.11.0")
+
+    androidTestImplementation(libs.testCore)
+    androidTestImplementation(libs.testRules)
+    androidTestImplementation(libs.testRunner)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.testExtJunit)
+    androidTestImplementation(libs.kotlinCoroutinesTest)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.testRunner)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.truth)
 }
 
 android {
-    namespace "androidx.pdf.viewer.fragment"
+    namespace = "androidx.pdf.viewer.fragment"
 
     defaultConfig {
-        minSdk 35 //TODO: Set to 31 after sdk extension 13 release
-        compileSdk 35
-        targetSdk 35 //TODO: Remove after sdk extension 13 release
+        minSdk = 31
+        compileSdk = 35
+        targetSdk = 31
     }
 }
 

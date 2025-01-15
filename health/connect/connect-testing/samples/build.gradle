@@ -47,15 +47,9 @@ androidx {
 }
 
 android {
-    namespace "androidx.health.connect.testing.samples"
+    namespace = "androidx.health.connect.testing.samples"
     defaultConfig {
-        minSdkVersion 26
+        minSdk = 26
     }
     compileSdk = 35
-}
-
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions {
-        freeCompilerArgs += ["-opt-in=kotlin.RequiresOptIn", "-opt-in=androidx.health.connect.client.testing.ExperimentalTestingApi"]
-    }
 }

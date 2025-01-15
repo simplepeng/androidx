@@ -16,6 +16,7 @@
 
 package androidx.compose.material3
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,10 +27,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.tokens.NavigationRailBaselineItemTokens
 import androidx.compose.material3.tokens.NavigationRailCollapsedTokens
+import androidx.compose.material3.tokens.NavigationRailColorTokens
 import androidx.compose.material3.tokens.NavigationRailExpandedTokens
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,6 +54,7 @@ import androidx.compose.ui.test.assertTopPositionInRootIsEqualTo
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isSelectable
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onParent
@@ -62,6 +66,8 @@ import androidx.compose.ui.unit.width
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import com.google.common.truth.Truth
+import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.launch
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -71,11 +77,23 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class WideNavigationRailTest {
     @get:Rule val rule = createComposeRule()
+    private val restorationTester = StateRestorationTester(rule)
 
     private val collapsedWidth = NavigationRailCollapsedTokens.ContainerWidth
     private val expandedMinWidth = NavigationRailExpandedTokens.ContainerWidthMinimum
     private val expandedMaxWidth = NavigationRailExpandedTokens.ContainerWidthMaximum
     private val verticalPadding = NavigationRailCollapsedTokens.TopSpace
+
+    @Test
+    fun railState_savesAndRestores() {
+        lateinit var railState: WideNavigationRailState
+
+        restorationTester.setContent { railState = rememberWideNavigationRailState() }
+
+        assertThat(railState.targetValue.isExpanded).isFalse()
+        restorationTester.emulateSavedInstanceStateRestore()
+        assertThat(railState.targetValue.isExpanded).isFalse()
+    }
 
     @Test
     fun rail_defaultSemantics() {
@@ -120,7 +138,9 @@ class WideNavigationRailTest {
     fun rail_expanded_size() {
         rule
             .setMaterialContentForSizeAssertions {
-                WideNavigationRail(expanded = true) {
+                WideNavigationRail(
+                    state = rememberWideNavigationRailState(WideNavigationRailValue.Expanded)
+                ) {
                     repeat(3) { index ->
                         WideNavigationRailItem(
                             railExpanded = true,
@@ -140,7 +160,10 @@ class WideNavigationRailTest {
     fun rail_expanded_maxSize() {
         rule
             .setMaterialContentForSizeAssertions {
-                WideNavigationRail(expanded = true, header = { Spacer(Modifier.width(400.dp)) }) {
+                WideNavigationRail(
+                    state = rememberWideNavigationRailState(WideNavigationRailValue.Expanded),
+                    header = { Spacer(Modifier.width(400.dp)) }
+                ) {
                     repeat(3) { index ->
                         WideNavigationRailItem(
                             railExpanded = true,
@@ -159,14 +182,15 @@ class WideNavigationRailTest {
     @Test
     fun rail_collapsed_expands() {
         rule.setMaterialContent(lightColorScheme()) {
-            var expanded by remember { mutableStateOf(false) }
+            val state = rememberWideNavigationRailState()
+            val scope = rememberCoroutineScope()
             WideNavigationRail(
                 modifier = Modifier.testTag("rail"),
-                expanded = expanded,
+                state = state,
                 header = {
                     Button(
                         modifier = Modifier.testTag("header"),
-                        onClick = { expanded = !expanded }
+                        onClick = { scope.launch { state.toggle() } }
                     ) {}
                 }
             ) {}
@@ -183,14 +207,15 @@ class WideNavigationRailTest {
     @Test
     fun rail_expanded_collapses() {
         rule.setMaterialContent(lightColorScheme()) {
-            var expanded by remember { mutableStateOf(true) }
+            val state = rememberWideNavigationRailState(WideNavigationRailValue.Expanded)
+            val scope = rememberCoroutineScope()
             WideNavigationRail(
                 modifier = Modifier.testTag("rail"),
-                expanded = expanded,
+                state = state,
                 header = {
                     Button(
                         modifier = Modifier.testTag("header"),
-                        onClick = { expanded = !expanded }
+                        onClick = { scope.launch { state.toggle() } }
                     ) {}
                 }
             ) {}
@@ -444,6 +469,40 @@ class WideNavigationRailTest {
     }
 
     @Test
+    fun item_customColors() {
+        rule.setMaterialContent(lightColorScheme()) {
+            val customColors =
+                WideNavigationRailItemDefaults.colors(
+                    selectedIconColor = Color.Red,
+                    unselectedTextColor = Color.Green,
+                )
+
+            WideNavigationRail {
+                WideNavigationRailItem(
+                    colors = customColors,
+                    icon = { Truth.assertThat(LocalContentColor.current).isEqualTo(Color.Red) },
+                    label = {
+                        Truth.assertThat(LocalContentColor.current)
+                            .isEqualTo(NavigationRailColorTokens.ItemActiveLabelText.value)
+                    },
+                    selected = true,
+                    onClick = {}
+                )
+                WideNavigationRailItem(
+                    colors = customColors,
+                    icon = {
+                        Truth.assertThat(LocalContentColor.current)
+                            .isEqualTo(NavigationRailColorTokens.ItemInactiveLabelText.value)
+                    },
+                    label = { Truth.assertThat(LocalContentColor.current).isEqualTo(Color.Green) },
+                    selected = false,
+                    onClick = {}
+                )
+            }
+        }
+    }
+
+    @Test
     fun header_position() {
         rule.setMaterialContent(lightColorScheme()) {
             WideNavigationRail(header = { Box(Modifier.testTag("header").size(10.dp)) }) {
@@ -480,7 +539,7 @@ class WideNavigationRailTest {
         rule.setMaterialContent(lightColorScheme()) {
             WideNavigationRail(
                 modifier = Modifier.testTag("rail"),
-                arrangement = WideNavigationRailArrangement.Center,
+                arrangement = Arrangement.Center,
                 header = { Box(Modifier.testTag("header").size(10.dp)) }
             ) {
                 WideNavigationRailItem(
@@ -512,7 +571,7 @@ class WideNavigationRailTest {
         rule.setMaterialContent(lightColorScheme()) {
             WideNavigationRail(
                 modifier = Modifier.testTag("rail"),
-                arrangement = WideNavigationRailArrangement.Bottom,
+                arrangement = Arrangement.Bottom,
                 header = { Box(Modifier.testTag("header").size(10.dp)) }
             ) {
                 WideNavigationRailItem(

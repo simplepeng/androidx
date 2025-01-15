@@ -59,29 +59,43 @@ internal class CanvasStrokeUnifiedRenderer(
         throw IllegalArgumentException("Cannot draw $stroke")
     }
 
-    override fun draw(canvas: Canvas, stroke: Stroke, strokeToCanvasTransform: AffineTransform) {
-        getDelegateRendererOrThrow(stroke).draw(canvas, stroke, strokeToCanvasTransform)
+    override fun draw(
+        canvas: Canvas,
+        stroke: Stroke,
+        strokeToScreenTransform: AffineTransform,
+        animationProgress: Float,
+    ) {
+        getDelegateRendererOrThrow(stroke)
+            .draw(canvas, stroke, strokeToScreenTransform, animationProgress)
     }
 
-    override fun draw(canvas: Canvas, stroke: Stroke, strokeToCanvasTransform: Matrix) {
-        getDelegateRendererOrThrow(stroke).draw(canvas, stroke, strokeToCanvasTransform)
+    override fun draw(
+        canvas: Canvas,
+        stroke: Stroke,
+        strokeToScreenTransform: Matrix,
+        animationProgress: Float,
+    ) {
+        getDelegateRendererOrThrow(stroke)
+            .draw(canvas, stroke, strokeToScreenTransform, animationProgress)
     }
 
     override fun draw(
         canvas: Canvas,
         inProgressStroke: InProgressStroke,
-        strokeToCanvasTransform: AffineTransform,
+        strokeToScreenTransform: AffineTransform,
+        animationProgress: Float,
     ) {
         val delegateRenderer = meshRenderer ?: pathRenderer
-        delegateRenderer.draw(canvas, inProgressStroke, strokeToCanvasTransform)
+        delegateRenderer.draw(canvas, inProgressStroke, strokeToScreenTransform, animationProgress)
     }
 
     override fun draw(
         canvas: Canvas,
         inProgressStroke: InProgressStroke,
-        strokeToCanvasTransform: Matrix,
+        strokeToScreenTransform: Matrix,
+        animationProgress: Float,
     ) {
         val delegateRenderer = meshRenderer ?: pathRenderer
-        delegateRenderer.draw(canvas, inProgressStroke, strokeToCanvasTransform)
+        delegateRenderer.draw(canvas, inProgressStroke, strokeToScreenTransform, animationProgress)
     }
 }

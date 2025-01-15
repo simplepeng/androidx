@@ -38,6 +38,7 @@ import javax.inject.Provider
 import kotlin.coroutines.resume
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -62,6 +63,19 @@ internal interface CameraOpener {
 
 internal interface CameraAvailabilityMonitor {
     suspend fun awaitAvailableCamera(cameraId: CameraId, timeoutMillis: Long): Boolean
+}
+
+internal interface RetryingCameraStateOpener {
+    suspend fun openCameraWithRetry(
+        cameraId: CameraId,
+        camera2DeviceCloser: Camera2DeviceCloser,
+        isForegroundObserver: (Unit) -> Boolean = { _ -> true },
+    ): OpenCameraResult
+
+    fun openAndAwaitCameraWithRetry(
+        cameraId: CameraId,
+        camera2DeviceCloser: Camera2DeviceCloser,
+    ): AwaitOpenCameraResult
 }
 
 internal interface DevicePolicyManagerWrapper {
@@ -99,7 +113,7 @@ constructor(private val cameraManager: Provider<CameraManager>, private val thre
     CameraAvailabilityMonitor {
 
     override suspend fun awaitAvailableCamera(cameraId: CameraId, timeoutMillis: Long): Boolean =
-        withTimeoutOrNull(timeoutMillis) { awaitAvailableCamera(cameraId) } ?: false
+        withTimeoutOrNull(timeoutMillis) { awaitAvailableCamera(cameraId) } == true
 
     private suspend fun awaitAvailableCamera(cameraId: CameraId) =
         suspendCancellableCoroutine { continuation ->
@@ -156,13 +170,18 @@ internal data class OpenCameraResult(
     val errorCode: CameraError? = null,
 )
 
+internal data class AwaitOpenCameraResult(
+    val cameraDeviceWrapper: CameraDeviceWrapper? = null,
+    val androidCameraState: AndroidCameraState? = null,
+)
+
 internal class CameraStateOpener
 @Inject
 constructor(
     private val cameraOpener: CameraOpener,
     private val camera2MetadataProvider: Camera2MetadataProvider,
     private val cameraErrorListener: CameraErrorListener,
-    private val camera2DeviceCloser: Camera2DeviceCloser,
+    private val camera2Quirks: Camera2Quirks,
     private val timeSource: TimeSource,
     private val cameraInteropConfig: CameraPipe.CameraInteropConfig?,
     private val threads: Threads
@@ -171,6 +190,7 @@ constructor(
         cameraId: CameraId,
         attempts: Int,
         requestTimestamp: TimestampNs,
+        camera2DeviceCloser: Camera2DeviceCloser,
         audioRestrictionController: AudioRestrictionController
     ): OpenCameraResult {
         val metadata = camera2MetadataProvider.getCameraMetadata(cameraId)
@@ -183,6 +203,7 @@ constructor(
                 timeSource,
                 cameraErrorListener,
                 camera2DeviceCloser,
+                camera2Quirks,
                 threads,
                 audioRestrictionController,
                 cameraInteropConfig?.cameraDeviceStateCallback,
@@ -219,7 +240,7 @@ constructor(
     }
 }
 
-internal class RetryingCameraStateOpener
+internal class RetryingCameraStateOpenerImpl
 @Inject
 constructor(
     private val cameraStateOpener: CameraStateOpener,
@@ -229,10 +250,11 @@ constructor(
     private val devicePolicyManager: DevicePolicyManagerWrapper,
     private val audioRestrictionController: AudioRestrictionController,
     private val cameraInteropConfig: CameraPipe.CameraInteropConfig?
-) {
-    internal suspend fun openCameraWithRetry(
+) : RetryingCameraStateOpener {
+    override suspend fun openCameraWithRetry(
         cameraId: CameraId,
-        isForegroundObserver: (Unit) -> Boolean = { _ -> true },
+        camera2DeviceCloser: Camera2DeviceCloser,
+        isForegroundObserver: (Unit) -> Boolean,
     ): OpenCameraResult {
         val requestTimestamp = Timestamps.now(timeSource)
         var attempts = 0
@@ -245,6 +267,7 @@ constructor(
                     cameraId,
                     attempts,
                     requestTimestamp,
+                    camera2DeviceCloser,
                     audioRestrictionController
                 )
             val elapsed = Timestamps.now(timeSource) - requestTimestamp
@@ -304,6 +327,29 @@ constructor(
                 ) {
                     Log.debug { "Timeout expired, retrying camera open for camera $cameraId" }
                 }
+            }
+        }
+    }
+
+    override fun openAndAwaitCameraWithRetry(
+        cameraId: CameraId,
+        camera2DeviceCloser: Camera2DeviceCloser,
+    ): AwaitOpenCameraResult {
+        Log.debug { "$this#openAndAwaitCameraWithRetry($cameraId)" }
+        return runBlocking {
+            val androidCameraState = openCameraWithRetry(cameraId, camera2DeviceCloser).cameraState
+            if (androidCameraState == null) {
+                Log.error { "Failed to open $cameraId!" }
+                return@runBlocking AwaitOpenCameraResult(null, null)
+            }
+
+            val cameraState = androidCameraState.state.first { it != CameraStateUnopened }
+            if (cameraState is CameraStateOpen) {
+                Log.info { "$cameraId opened successfully." }
+                AwaitOpenCameraResult(cameraState.cameraDevice, androidCameraState)
+            } else {
+                Log.error { "Failed to open $cameraId!" }
+                AwaitOpenCameraResult(null, null)
             }
         }
     }

@@ -44,10 +44,13 @@ interface HealthConnectFeatures {
         const val FEATURE_SKIN_TEMPERATURE = 2
 
         /** Feature constant for planned exercise sessions. */
-        @RestrictTo(RestrictTo.Scope.LIBRARY) const val FEATURE_PLANNED_EXERCISE = 3
+        const val FEATURE_PLANNED_EXERCISE = 3
 
         /** Feature constant for reading health data history. */
-        @RestrictTo(RestrictTo.Scope.LIBRARY) const val FEATURE_HEALTH_DATA_HISTORIC_READ = 4
+        const val FEATURE_READ_HEALTH_DATA_HISTORY = 4
+
+        /** Feature constant for mindfulness session. */
+        @RestrictTo(RestrictTo.Scope.LIBRARY) const val FEATURE_MINDFULNESS_SESSION = 5
 
         @Retention(AnnotationRetention.SOURCE)
         @IntDef(
@@ -56,7 +59,8 @@ interface HealthConnectFeatures {
                     FEATURE_READ_HEALTH_DATA_IN_BACKGROUND,
                     FEATURE_SKIN_TEMPERATURE,
                     FEATURE_PLANNED_EXERCISE,
-                    FEATURE_HEALTH_DATA_HISTORIC_READ
+                    FEATURE_READ_HEALTH_DATA_HISTORY,
+                    FEATURE_MINDFULNESS_SESSION
                 ]
         )
         @RestrictTo(RestrictTo.Scope.LIBRARY)
@@ -84,8 +88,18 @@ interface HealthConnectFeatures {
         internal val FEATURE_TO_VERSION_INFO_MAP: Map<Int, HealthConnectVersionInfo> =
             mapOf(
                 FEATURE_READ_HEALTH_DATA_IN_BACKGROUND to
-                    HealthConnectVersionInfo(platformVersion = SDK_EXT_13_PLATFORM_VERSION),
+                    HealthConnectVersionInfo(
+                        apkVersionCode = 171302,
+                        platformVersion = SDK_EXT_13_PLATFORM_VERSION
+                    ),
                 FEATURE_SKIN_TEMPERATURE to
+                    HealthConnectVersionInfo(platformVersion = SDK_EXT_13_PLATFORM_VERSION),
+                FEATURE_READ_HEALTH_DATA_HISTORY to
+                    HealthConnectVersionInfo(
+                        apkVersionCode = 171302,
+                        platformVersion = SDK_EXT_13_PLATFORM_VERSION
+                    ),
+                FEATURE_PLANNED_EXERCISE to
                     HealthConnectVersionInfo(platformVersion = SDK_EXT_13_PLATFORM_VERSION)
             )
     }

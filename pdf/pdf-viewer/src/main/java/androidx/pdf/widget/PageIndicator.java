@@ -22,12 +22,13 @@ import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.RestrictTo;
 import androidx.annotation.VisibleForTesting;
 import androidx.pdf.R;
 import androidx.pdf.data.Range;
 import androidx.pdf.util.Accessibility;
+
+import org.jspecify.annotations.NonNull;
 
 import java.util.Objects;
 
@@ -99,7 +100,8 @@ public class PageIndicator extends ReusableToast {
 
         if (zoom != mCurrentZoom && stable) {
             // Override announcement with zoom info.
-            announceStr = getDescription(range) + "\n" + getZoomDescription(zoom);
+            announceStr = (announceStr != null) ? announceStr + getZoomDescription(zoom) :
+                    getZoomDescription(zoom);
             mCurrentZoom = zoom;
         }
         if (announceStr != null && mAccessibility.isAccessibilityEnabled(mContext)) {
@@ -109,8 +111,7 @@ public class PageIndicator extends ReusableToast {
         return shown;
     }
 
-    @NonNull
-    public TextView getTextView() {
+    public @NonNull TextView getTextView() {
         return mPageNumberView;
     }
 
@@ -123,7 +124,7 @@ public class PageIndicator extends ReusableToast {
         Resources res = mContext.getResources();
         switch (range.length()) {
             case 0:
-                return res.getString(R.string.label_page_single, range.getLast() + 1, mNumPages);
+                return res.getString(R.string.label_page_single, range.getLast(), mNumPages);
             case 1:
                 return res.getString(R.string.label_page_single, range.getFirst() + 1, mNumPages);
             default:

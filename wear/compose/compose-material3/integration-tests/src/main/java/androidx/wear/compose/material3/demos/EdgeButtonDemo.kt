@@ -45,6 +45,8 @@ import androidx.wear.compose.integration.demos.common.AdaptiveScreen
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material3.EdgeButton
+import androidx.wear.compose.material3.EdgeButtonDefaults
+import androidx.wear.compose.material3.EdgeButtonSize
 import androidx.wear.compose.material3.RadioButton
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
@@ -69,21 +71,22 @@ fun EdgeButtonBelowLazyColumnDemo() {
         val state = rememberLazyListState()
         ScreenScaffold(
             scrollState = state,
-            bottomButton = {
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 20.dp),
+            edgeButton = {
                 EdgeButton(
                     onClick = {},
-                    buttonHeight = ButtonDefaults.EdgeButtonHeightLarge,
+                    buttonSize = EdgeButtonSize.Large,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
                 ) {
                     Text(labels[selectedLabel.intValue], color = Color.White)
                 }
             }
-        ) {
+        ) { contentPadding ->
             LazyColumn(
                 state = state,
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(10.dp, 20.dp, 10.dp, 80.dp),
+                contentPadding = contentPadding,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 items(labels.size) {
@@ -117,21 +120,22 @@ fun EdgeButtonBelowScalingLazyColumnDemo() {
         val state = rememberScalingLazyListState()
         ScreenScaffold(
             scrollState = state,
-            bottomButton = {
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 20.dp),
+            edgeButton = {
                 EdgeButton(
                     onClick = {},
-                    buttonHeight = ButtonDefaults.EdgeButtonHeightLarge,
+                    buttonSize = EdgeButtonSize.Large,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
                 ) {
                     Text(labels[selectedLabel.intValue], color = Color.White)
                 }
             }
-        ) {
+        ) { contentPadding ->
             ScalingLazyColumn(
                 state = state,
                 modifier = Modifier.fillMaxSize(),
                 autoCentering = null,
-                contentPadding = PaddingValues(10.dp, 20.dp, 10.dp, 100.dp),
+                contentPadding = contentPadding,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 items(labels.size) {
@@ -152,10 +156,10 @@ fun EdgeButtonBelowScalingLazyColumnDemo() {
 fun EdgeButtonMultiDemo() {
     val sizes =
         listOf(
-            ButtonDefaults.EdgeButtonHeightExtraSmall,
-            ButtonDefaults.EdgeButtonHeightSmall,
-            ButtonDefaults.EdgeButtonHeightMedium,
-            ButtonDefaults.EdgeButtonHeightLarge
+            EdgeButtonSize.ExtraSmall,
+            EdgeButtonSize.Small,
+            EdgeButtonSize.Medium,
+            EdgeButtonSize.Large
         )
     val sizeNames = listOf("XS", "S", "M", "L")
     var size by remember { mutableIntStateOf(0) }
@@ -215,14 +219,14 @@ fun EdgeButtonMultiDemo() {
             EdgeButton(
                 onClick = {},
                 enabled = colorNames[color] != "D",
-                buttonHeight = sizes[size],
+                buttonSize = sizes[size],
                 colors = colors[color],
                 border =
                     if (colorNames[color] == "O")
                         ButtonDefaults.outlinedButtonBorder(enabled = true)
                     else null
             ) {
-                CheckIcon()
+                CheckIcon(modifier = Modifier.size(EdgeButtonDefaults.iconSizeFor(sizes[size])))
             }
         }
     }
@@ -232,10 +236,10 @@ fun EdgeButtonMultiDemo() {
 fun EdgeButtonConfigurableDemo() {
     val sizes =
         listOf(
-            "Extra Small" to ButtonDefaults.EdgeButtonHeightExtraSmall,
-            "Small" to ButtonDefaults.EdgeButtonHeightSmall,
-            "Medium" to ButtonDefaults.EdgeButtonHeightMedium,
-            "Large" to ButtonDefaults.EdgeButtonHeightLarge
+            "Extra Small" to EdgeButtonSize.ExtraSmall,
+            "Small" to EdgeButtonSize.Small,
+            "Medium" to EdgeButtonSize.Medium,
+            "Large" to EdgeButtonSize.Large,
         )
     var selectedSize by remember { mutableIntStateOf(0) }
     val colors =
@@ -254,10 +258,11 @@ fun EdgeButtonConfigurableDemo() {
         val state = rememberScalingLazyListState()
         ScreenScaffold(
             scrollState = state,
-            bottomButton = {
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 20.dp),
+            edgeButton = {
                 EdgeButton(
                     onClick = {},
-                    buttonHeight = sizes[selectedSize].second,
+                    buttonSize = sizes[selectedSize].second,
                     colors = colors[selectedColor].second,
                     border =
                         if (colors[selectedColor].first == "Outlined")
@@ -266,19 +271,23 @@ fun EdgeButtonConfigurableDemo() {
                     enabled = colors[selectedColor].first != "Disabled"
                 ) {
                     if (selectedType == 0) {
-                        CheckIcon()
+                        CheckIcon(
+                            modifier =
+                                Modifier.size(
+                                    EdgeButtonDefaults.iconSizeFor(sizes[selectedSize].second)
+                                )
+                        )
                     } else {
                         Text("Ok")
                     }
                 }
             }
-        ) {
+        ) { contentPadding ->
             ScalingLazyColumn(
                 state = state,
                 modifier = Modifier.fillMaxSize(),
                 autoCentering = null,
-                contentPadding =
-                    PaddingValues(10.dp, 20.dp, 10.dp, sizes[selectedSize].second + 6.dp),
+                contentPadding = contentPadding,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 selection(

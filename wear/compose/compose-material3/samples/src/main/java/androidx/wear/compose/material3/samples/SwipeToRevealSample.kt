@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Card
 import androidx.wear.compose.material3.Icon
@@ -34,18 +33,20 @@ import androidx.wear.compose.material3.SwipeToRevealDefaults
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.rememberRevealState
 
-@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 @Sampled
 fun SwipeToRevealSample() {
     SwipeToReveal(
         // Use the double action anchor width when revealing two actions
         revealState =
-            rememberRevealState(anchorWidth = SwipeToRevealDefaults.DoubleActionAnchorWidth),
+            rememberRevealState(
+                anchorWidth = SwipeToRevealDefaults.DoubleActionAnchorWidth,
+            ),
         actions = {
             primaryAction(
                 onClick = { /* This block is called when the primary action is executed. */ },
                 icon = { Icon(Icons.Outlined.Delete, contentDescription = "Delete") },
+                text = { Text("Delete") },
                 label = "Delete"
             )
             secondaryAction(
@@ -55,7 +56,7 @@ fun SwipeToRevealSample() {
             )
             undoPrimaryAction(
                 onClick = { /* This block is called when the undo primary action is executed. */ },
-                label = "Undo Delete"
+                text = { Text("Undo Delete") },
             )
         }
     ) {
@@ -65,7 +66,6 @@ fun SwipeToRevealSample() {
     }
 }
 
-@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 @Sampled
 fun SwipeToRevealSingleActionCardSample() {
@@ -75,7 +75,12 @@ fun SwipeToRevealSingleActionCardSample() {
             primaryAction(
                 onClick = { /* This block is called when the primary action is executed. */ },
                 icon = { Icon(Icons.Outlined.Delete, contentDescription = "Delete") },
+                text = { Text("Delete") },
                 label = "Delete"
+            )
+            undoPrimaryAction(
+                onClick = { /* This block is called when the undo primary action is executed. */ },
+                text = { Text("Undo Delete") },
             )
         }
     ) {
@@ -88,7 +93,6 @@ fun SwipeToRevealSingleActionCardSample() {
     }
 }
 
-@OptIn(ExperimentalWearFoundationApi::class)
 @Composable
 @Sampled
 fun SwipeToRevealNonAnchoredSample() {
@@ -98,12 +102,13 @@ fun SwipeToRevealNonAnchoredSample() {
             primaryAction(
                 onClick = { /* This block is called when the primary action is executed. */ },
                 icon = { Icon(Icons.Outlined.Delete, contentDescription = "Delete") },
+                text = { Text("Delete") },
                 label = "Delete"
             )
             undoPrimaryAction(
                 onClick = { /* This block is called when the undo primary action is executed. */ },
                 icon = { Icon(Icons.Outlined.Refresh, contentDescription = "Undo") },
-                label = "Undo"
+                text = { Text("Undo") },
             )
         }
     ) {

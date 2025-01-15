@@ -22,18 +22,28 @@
  * modifying its settings.
  */
 
+
+import androidx.build.KotlinTarget
 import androidx.build.PlatformIdentifier
 import androidx.build.LibraryType
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
     id("AndroidXPlugin")
-    id("com.android.library")
 }
 
-
 androidXMultiplatform {
-    android()
+    androidLibrary {
+        namespace = "androidx.sqlite.db"
+        withAndroidTestOnDeviceBuilder {
+            it.compilationName = "instrumentedTest"
+            it.defaultSourceSetName = "androidInstrumentedTest"
+            it.sourceSetTreeName = "test"
+        }
+        withAndroidTestOnJvmBuilder {
+            it.defaultSourceSetName = "androidUnitTest"
+        }
+    }
     ios()
     jvm()
     linux()
@@ -81,13 +91,11 @@ androidXMultiplatform {
     }
 }
 
-android {
-    namespace "androidx.sqlite.db"
-}
 
 androidx {
     name = "SQLite"
     type = LibraryType.PUBLISHED_LIBRARY
     inceptionYear = "2017"
     description = "SQLite API"
+    kotlinTarget = KotlinTarget.KOTLIN_2_0
 }

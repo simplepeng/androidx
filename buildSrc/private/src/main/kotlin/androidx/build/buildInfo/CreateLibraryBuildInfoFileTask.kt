@@ -42,6 +42,7 @@ import org.gradle.api.artifacts.ModuleVersionIdentifier
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.component.ComponentWithCoordinates
 import org.gradle.api.component.ComponentWithVariants
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.internal.artifacts.dependencies.DefaultExternalModuleDependency
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
 import org.gradle.api.internal.artifacts.ivyservice.projectmodule.ProjectComponentPublication
@@ -60,7 +61,6 @@ import org.gradle.api.tasks.TaskProvider
 import org.gradle.kotlin.dsl.configure
 import org.gradle.work.DisableCachingByDefault
 import org.jetbrains.kotlin.gradle.plugin.getKotlinPluginVersion
-import org.jetbrains.kotlin.utils.mapToSetOrEmpty
 
 /**
  * This task generates a library build information file containing the artifactId, groupId, and
@@ -83,7 +83,7 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
         description = "Generates a file containing library build information serialized to json"
     }
 
-    @get:OutputFile abstract val outputFile: Property<File>
+    @get:OutputFile abstract val outputFile: RegularFileProperty
 
     @get:Input abstract val artifactId: Property<String>
 
@@ -107,6 +107,9 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
     @get:[Input Optional]
     abstract val dependencyConstraintList: ListProperty<LibraryBuildInfoFile.Dependency>
 
+    @get:[Input Optional]
+    abstract val testModuleNames: SetProperty<String>
+
     /** the local project directory without the full framework/support root directory path */
     @get:Input abstract val projectSpecificDirectory: Property<String>
 
@@ -124,7 +127,7 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
     abstract val kmpChildren: SetProperty<String>
 
     private fun writeJsonToFile(info: LibraryBuildInfoFile) {
-        val resolvedOutputFile: File = outputFile.get()
+        val resolvedOutputFile: File = outputFile.get().asFile
         val outputDir = resolvedOutputFile.parentFile
         if (!outputDir.exists()) {
             if (!outputDir.mkdirs()) {
@@ -164,6 +167,8 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
         libraryBuildInfoFile.target = target.get()
         libraryBuildInfoFile.kmpChildren =
             if (kmpChildren.isPresent) kmpChildren.get() else emptySet()
+        libraryBuildInfoFile.testModuleNames =
+            if (testModuleNames.isPresent) testModuleNames.get() else emptySet()
         return libraryBuildInfoFile
     }
 
@@ -191,6 +196,7 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
             isKmp: Boolean,
             target: String,
             kmpChildren: Set<String>,
+            testModuleNames: Provider<Set<String>>,
         ): TaskProvider<CreateLibraryBuildInfoFileTask> {
             return project.tasks.register(
                 TASK_NAME + variant.taskSuffix,
@@ -233,6 +239,12 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
                 task.kmp.set(isKmp)
                 task.target.set(target)
                 task.kmpChildren.set(kmpChildren)
+
+                // We only want test module names for the parent build info file for Gradle projects
+                // that have multiple build info files, like KMP.
+                if (variant.taskSuffix.isBlank()) {
+                    task.testModuleNames.set(testModuleNames)
+                }
             }
         }
 
@@ -268,7 +280,8 @@ abstract class CreateLibraryBuildInfoFileTask : DefaultTask() {
             this != null &&
                 startsWith("androidx.") &&
                 !startsWith("androidx.test") &&
-                !startsWith("androidx.databinding")
+                !startsWith("androidx.databinding") &&
+                !startsWith("androidx.media3")
     }
 }
 
@@ -309,8 +322,9 @@ fun Project.addCreateLibraryBuildInfoFileTasks(
                         shouldPublishDocs = androidXExtension.requiresDocs(),
                         isKmp = androidXKmpExtension.supportedPlatforms.isNotEmpty(),
                         buildTarget = buildTarget,
-                        kmpChildren =
-                            androidXKmpExtension.supportedPlatforms.mapToSetOrEmpty { it.id }
+                        kmpChildren = androidXKmpExtension.supportedPlatforms.map { it.id }.toSet(),
+                        testModuleNames = androidXExtension.testModuleNames,
+                        isolatedProjectEnabled = androidXExtension.isIsolatedProjectsEnabled(),
                     )
                 }
             }
@@ -327,6 +341,8 @@ private fun Project.createTaskForComponent(
     isKmp: Boolean,
     buildTarget: String,
     kmpChildren: Set<String>,
+    testModuleNames: Provider<Set<String>>,
+    isolatedProjectEnabled: Boolean,
 ) {
     val task =
         createBuildInfoTask(
@@ -338,9 +354,12 @@ private fun Project.createTaskForComponent(
             isKmp = isKmp,
             buildTarget = buildTarget,
             kmpChildren = kmpChildren,
+            testModuleNames = testModuleNames,
         )
     anchorTask.dependsOn(task)
-    addTaskToAggregateBuildInfoFileTask(task)
+    if (!isolatedProjectEnabled) {
+        addTaskToAggregateBuildInfoFileTask(task)
+    }
 }
 
 private fun Project.createBuildInfoTask(
@@ -352,6 +371,7 @@ private fun Project.createBuildInfoTask(
     isKmp: Boolean,
     buildTarget: String,
     kmpChildren: Set<String>,
+    testModuleNames: Provider<Set<String>>,
 ): TaskProvider<CreateLibraryBuildInfoFileTask> {
     val kmpTaskSuffix = computeTaskSuffix(name, artifactId)
     return CreateLibraryBuildInfoFileTask.setup(
@@ -379,6 +399,7 @@ private fun Project.createBuildInfoTask(
         isKmp = isKmp,
         target = buildTarget,
         kmpChildren = kmpChildren,
+        testModuleNames = testModuleNames,
     )
 }
 

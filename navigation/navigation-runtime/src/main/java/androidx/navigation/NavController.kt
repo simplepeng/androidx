@@ -119,7 +119,18 @@ public open class NavController(
         MutableStateFlow(emptyList())
 
     /**
-     * Retrieve the current back stack.
+     * This probably isn't what you actually want. If you're looking for the back stack of a
+     * particular kind of destination (e.g., all of the composables on your back stack), then you
+     * should be looking up the back stack for the particular Navigator you want, rather than this
+     * combined back stack that is going to interleave navigation graphs with the actual back stack
+     * entries you are interested in.
+     *
+     * ```
+     * val composeNavigator = navController.navigatorProvider.get(ComposeNavigator::class)
+     * composeNavigator.backStack.collect { entries ->
+     *     // Use the entries
+     * }
+     * ```
      *
      * @return The current back stack.
      */
@@ -193,7 +204,10 @@ public open class NavController(
     private val lifecycleObserver: LifecycleObserver = LifecycleEventObserver { _, event ->
         hostLifecycleState = event.targetState
         if (_graph != null) {
-            for (entry in backQueue) {
+            // Operate on a copy of the queue to avoid issues with reentrant
+            // calls if updating the Lifecycle calls navigate() or popBackStack()
+            val backStack = backQueue.toMutableList()
+            for (entry in backStack) {
                 entry.handleLifecycleEvent(event)
             }
         }
@@ -534,10 +548,32 @@ public open class NavController(
     public inline fun <reified T : Any> popBackStack(
         inclusive: Boolean,
         saveState: Boolean = false
+    ): Boolean = popBackStack(T::class, inclusive, saveState)
+
+    /**
+     * Attempts to pop the controller's back stack back to a specific destination.
+     *
+     * @param route The topmost destination to retain with route from a [KClass]. The target
+     *   NavDestination must have been created with route from [KClass].
+     * @param inclusive Whether the given destination should also be popped.
+     * @param saveState Whether the back stack and the state of all destinations between the current
+     *   destination and [route] should be saved for later restoration via
+     *   [NavOptions.Builder.setRestoreState] or the `restoreState` attribute using the same [T]
+     *   (note: this matching ID is true whether [inclusive] is true or false).
+     * @return true if the stack was popped at least once and the user has been navigated to another
+     *   destination, false otherwise
+     */
+    @MainThread
+    @JvmOverloads
+    @OptIn(InternalSerializationApi::class)
+    public fun <T : Any> popBackStack(
+        route: KClass<T>,
+        inclusive: Boolean,
+        saveState: Boolean = false
     ): Boolean {
-        val id = serializer<T>().generateHashCode()
+        val id = route.serializer().generateHashCode()
         requireNotNull(graph.findDestinationComprehensive(id, true)) {
-            "Destination with route ${T::class.simpleName} cannot be found in navigation " +
+            "Destination with route ${route.simpleName} cannot be found in navigation " +
                 "graph $graph"
         }
         return popBackStack(id, inclusive, saveState)
@@ -870,8 +906,21 @@ public open class NavController(
      * @return true if the saved state of the stack associated with [T] was cleared.
      */
     @MainThread
-    public inline fun <reified T : Any> clearBackStack(): Boolean =
-        clearBackStack(serializer<T>().generateHashCode())
+    public inline fun <reified T : Any> clearBackStack(): Boolean = clearBackStack(T::class)
+
+    /**
+     * Clears any saved state associated with KClass [route] that was previously saved via
+     * [popBackStack] when using a `saveState` value of `true`.
+     *
+     * @param route The route from the [KClass] of the destination previously used with
+     *   [popBackStack] with a `saveState`value of `true`. The target NavDestination must have been
+     *   created with route from [KClass].
+     * @return true if the saved state of the stack associated with [route] was cleared.
+     */
+    @OptIn(InternalSerializationApi::class)
+    @MainThread
+    public fun <T : Any> clearBackStack(route: KClass<T>): Boolean =
+        clearBackStack(route.serializer().generateHashCode())
 
     /**
      * Clears any saved state associated with KClass [T] that was previously saved via
@@ -1318,6 +1367,11 @@ public open class NavController(
     @MainThread
     @CallSuper
     public open fun setGraph(graph: NavGraph, startDestinationArgs: Bundle?) {
+        check(backQueue.isEmpty() || hostLifecycleState != Lifecycle.State.DESTROYED) {
+            "You cannot set a new graph on a NavController with entries on the back stack " +
+                "after the NavController has been destroyed. Please ensure that your NavHost " +
+                "has the same lifetime as your NavController."
+        }
         if (_graph != graph) {
             _graph?.let { previousGraph ->
                 // Clear all saved back stacks by iterating through a copy of the saved keys,
@@ -1523,7 +1577,55 @@ public open class NavController(
             }
             return true
         }
-        if (flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0) {
+        return handleDeepLink(deepLink, args, flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+    }
+
+    /**
+     * Checks the given NavDeepLinkRequest for a Navigation deep link and navigates to the
+     * destination if present.
+     *
+     * The [navigation graph][graph] should be set before calling this method.
+     *
+     * @param request The request that contains a valid deep link, an action or a mimeType.
+     * @return True if the navigation controller found a valid deep link and navigated to it.
+     * @throws IllegalStateException if deep link cannot be accessed from the current destination
+     * @see NavDestination.addDeepLink
+     */
+    @MainThread
+    public fun handleDeepLink(request: NavDeepLinkRequest): Boolean {
+        val currGraph = backQueue.getTopGraph()
+        val matchingDeepLink =
+            currGraph.matchDeepLinkComprehensive(
+                navDeepLinkRequest = request,
+                searchChildren = true,
+                searchParent = true,
+                lastVisited = currGraph
+            )
+        if (matchingDeepLink != null) {
+            val destination = matchingDeepLink.destination
+            val deepLink = destination.buildDeepLinkIds()
+            val globalArgs = Bundle()
+            val destinationArgs = destination.addInDefaultArgs(matchingDeepLink.matchingArgs)
+            if (destinationArgs != null) {
+                globalArgs.putAll(destinationArgs)
+            }
+            val args = arrayOfNulls<Bundle>(deepLink.size)
+            for (index in args.indices) {
+                val arguments = Bundle()
+                arguments.putAll(globalArgs)
+                args[index] = arguments
+            }
+            return handleDeepLink(deepLink, args, true)
+        }
+        return false
+    }
+
+    private fun handleDeepLink(
+        deepLink: IntArray,
+        args: Array<Bundle?>,
+        newTask: Boolean
+    ): Boolean {
+        if (newTask) {
             // Start with a cleared task starting at our root when we're on our own task
             if (!backQueue.isEmpty()) {
                 popBackStackInternal(_graph!!.id, true)
@@ -1646,34 +1748,72 @@ public open class NavController(
             return currentBackStackEntry?.destination
         }
 
-    /** Recursively searches through parents */
+    /**
+     * Recursively searches through parents
+     *
+     * @param destinationId the [NavDestination.id]
+     * @param matchingDest an optional NavDestination that the node should match with. This is
+     *   because [destinationId] is only unique to a local graph. Nodes in sibling graphs can have
+     *   the same id.
+     */
     @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
-    public fun findDestination(@IdRes destinationId: Int): NavDestination? {
+    public fun findDestination(
+        @IdRes destinationId: Int,
+        matchingDest: NavDestination? = null,
+    ): NavDestination? {
         if (_graph == null) {
             return null
         }
+
         if (_graph!!.id == destinationId) {
-            return _graph
+            when {
+                /**
+                 * if the search expected a specific NavDestination (i.e. a duplicated destination
+                 * within a specific graph), we need to make sure the result matches it to ensure
+                 * this search returns the correct duplicate.
+                 */
+                matchingDest != null ->
+                    if (_graph == matchingDest && matchingDest.parent == null) return _graph
+                else -> return _graph
+            }
         }
+
         val currentNode = backQueue.lastOrNull()?.destination ?: _graph!!
-        return currentNode.findDestinationComprehensive(destinationId, false)
+        return currentNode.findDestinationComprehensive(destinationId, false, matchingDest)
     }
 
     /**
      * Recursively searches through parents. If [searchChildren] is true, also recursively searches
      * children.
+     *
+     * @param destinationId the [NavDestination.id]
+     * @param searchChildren recursively searches children when true
+     * @param matchingDest an optional NavDestination that the node should match with. This is
+     *   because [destinationId] is only unique to a local graph. Nodes in sibling graphs can have
+     *   the same id.
      */
     @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
     public fun NavDestination.findDestinationComprehensive(
         @IdRes destinationId: Int,
-        searchChildren: Boolean
+        searchChildren: Boolean,
+        matchingDest: NavDestination? = null,
     ): NavDestination? {
-
         if (id == destinationId) {
-            return this
+            when {
+                // check parent in case of duplicated destinations to ensure it finds the correct
+                // nested destination
+                matchingDest != null ->
+                    if (this == matchingDest && this.parent == matchingDest.parent) return this
+                else -> return this
+            }
         }
         val currentGraph = if (this is NavGraph) this else parent!!
-        return currentGraph.findNodeComprehensive(destinationId, currentGraph, searchChildren)
+        return currentGraph.findNodeComprehensive(
+            destinationId,
+            currentGraph,
+            searchChildren,
+            matchingDest
+        )
     }
 
     /** Recursively searches through parents */
@@ -2285,7 +2425,9 @@ public open class NavController(
         // equality to ensure that same destinations with a parent that is not this _graph
         // will also have their parents added to the hierarchy.
         destination = if (hierarchy.isEmpty()) newDest else hierarchy.first().destination
-        while (destination != null && findDestination(destination.id) !== destination) {
+        while (
+            destination != null && findDestination(destination.id, destination) !== destination
+        ) {
             val parent = destination.parent
             if (parent != null) {
                 val args = if (finalArgs?.isEmpty == true) null else finalArgs
@@ -2745,16 +2887,32 @@ public open class NavController(
      *   NavBackStackEntry's [NavDestination] must have been created with route from [KClass].
      * @throws IllegalArgumentException if the destination is not on the back stack
      */
-    public inline fun <reified T : Any> getBackStackEntry(): NavBackStackEntry {
-        val id = serializer<T>().generateHashCode()
+    public inline fun <reified T : Any> getBackStackEntry(): NavBackStackEntry =
+        getBackStackEntry(T::class)
+
+    /**
+     * Gets the topmost [NavBackStackEntry] for a [route] from [KClass].
+     *
+     * This is always safe to use with [the current destination][currentDestination] or
+     * [its parent][NavDestination.parent] or grandparent navigation graphs as these destinations
+     * are guaranteed to be on the back stack.
+     *
+     * @param route route from the [KClass] of destination [T] that exists on the back stack. The
+     *   target NavBackStackEntry's [NavDestination] must have been created with route from
+     *   [KClass].
+     * @throws IllegalArgumentException if the destination is not on the back stack
+     */
+    @OptIn(InternalSerializationApi::class)
+    public fun <T : Any> getBackStackEntry(route: KClass<T>): NavBackStackEntry {
+        val id = route.serializer().generateHashCode()
         requireNotNull(graph.findDestinationComprehensive(id, true)) {
-            "Destination with route ${T::class.simpleName} cannot be found in navigation " +
+            "Destination with route ${route.simpleName} cannot be found in navigation " +
                 "graph $graph"
         }
         val lastFromBackStack =
             currentBackStack.value.lastOrNull { entry -> entry.destination.id == id }
         requireNotNull(lastFromBackStack) {
-            "No destination with route ${T::class.simpleName} is on the NavController's " +
+            "No destination with route ${route.simpleName} is on the NavController's " +
                 "back stack. The current destination is $currentDestination"
         }
         return lastFromBackStack

@@ -24,15 +24,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.runtime.Composable
+import androidx.compose.testutils.assertAgainstGolden
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.filters.MediumTest
 import androidx.test.filters.SdkSuppress
 import androidx.test.screenshot.AndroidXScreenshotTestRule
-import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
 import androidx.wear.compose.foundation.RevealActionType
 import androidx.wear.compose.foundation.RevealValue
+import androidx.wear.compose.foundation.SwipeDirection
+import androidx.wear.compose.materialcore.screenWidthDp
 import com.google.testing.junit.testparameterinjector.TestParameter
 import com.google.testing.junit.testparameterinjector.TestParameterInjector
 import org.junit.Rule
@@ -50,18 +58,18 @@ class SwipeToRevealScreenshotTest {
 
     @get:Rule val testName = TestName()
 
-    @OptIn(ExperimentalWearFoundationApi::class)
     @Test
     fun swipeToReveal_showsPrimaryAction(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
             Box(modifier = Modifier.fillMaxSize()) {
                 SwipeToReveal(
                     modifier = Modifier.testTag(TEST_TAG),
-                    revealState = rememberRevealState(initialValue = RevealValue.Revealing),
+                    revealState = rememberRevealState(initialValue = RevealValue.RightRevealing),
                     actions = {
                         primaryAction(
                             {},
                             { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                            { Text("Clear") },
                             "Clear"
                         )
                     }
@@ -74,7 +82,6 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
     @Test
     fun swipeToReveal_showsPrimaryAndSecondaryActions(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
@@ -83,13 +90,14 @@ class SwipeToRevealScreenshotTest {
                     modifier = Modifier.testTag(TEST_TAG),
                     revealState =
                         rememberRevealState(
-                            initialValue = RevealValue.Revealing,
+                            initialValue = RevealValue.RightRevealing,
                             anchorWidth = SwipeToRevealDefaults.DoubleActionAnchorWidth
                         ),
                     actions = {
                         primaryAction(
                             {},
                             { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                            { Text("Clear") },
                             "Clear"
                         )
                         secondaryAction(
@@ -107,17 +115,21 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
     @Test
     fun swipeToReveal_showsUndoPrimaryAction(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
             Box(modifier = Modifier.fillMaxSize()) {
                 SwipeToReveal(
                     modifier = Modifier.testTag(TEST_TAG),
-                    revealState = rememberRevealState(initialValue = RevealValue.Revealed),
+                    revealState = rememberRevealState(initialValue = RevealValue.RightRevealed),
                     actions = {
-                        primaryAction({}, /* Empty for testing */ {}, /* Empty for testing */ "")
-                        undoPrimaryAction({}, "Undo Primary")
+                        primaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            {} /* Empty for testing */,
+                            ""
+                        )
+                        undoPrimaryAction({}, { Text("Undo Primary") })
                     }
                 ) {
                     Button({}) { Text(/* Empty for testing */ "") }
@@ -126,7 +138,36 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
+    @Test
+    fun swipeToReveal_showsUndoPrimaryAction_singleLineTruncated() {
+        verifyScreenshotForSize(ScreenSize.SMALL) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                SwipeToReveal(
+                    modifier = Modifier.testTag(TEST_TAG),
+                    revealState = rememberRevealState(initialValue = RevealValue.RightRevealed),
+                    actions = {
+                        primaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            {} /* Empty for testing */,
+                            ""
+                        )
+                        undoPrimaryAction(
+                            {},
+                            {
+                                Text(
+                                    "Undo Delete action with an extremely long label that should truncate."
+                                )
+                            }
+                        )
+                    }
+                ) {
+                    Button({}) { Text(/* Empty for testing */ "") }
+                }
+            }
+        }
+    }
+
     @Test
     fun swipeToReveal_showsUndoSecondaryAction(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
@@ -134,14 +175,22 @@ class SwipeToRevealScreenshotTest {
                 SwipeToReveal(
                     modifier = Modifier.testTag(TEST_TAG),
                     revealState =
-                        rememberRevealState(initialValue = RevealValue.Revealed).apply {
+                        rememberRevealState(initialValue = RevealValue.RightRevealed).apply {
                             lastActionType = RevealActionType.SecondaryAction
                         },
                     actions = {
-                        primaryAction({}, /* Empty for testing */ {}, /* Empty for testing */ "")
-                        undoPrimaryAction({}, /* Empty for testing */ "")
+                        primaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            ""
+                        )
+                        undoPrimaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                        )
                         secondaryAction({}, /* Empty for testing */ {}, /* Empty for testing */ "")
-                        undoSecondaryAction({}, "Undo Secondary")
+                        undoSecondaryAction({}, { Text("Undo Secondary") })
                     }
                 ) {
                     Button({}) { Text(/* Empty for testing */ "") }
@@ -150,7 +199,44 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
+    @Test
+    fun swipeToReveal_showsUndoSecondaryAction_singleLineTruncated() {
+        verifyScreenshotForSize(ScreenSize.SMALL) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                SwipeToReveal(
+                    modifier = Modifier.testTag(TEST_TAG),
+                    revealState =
+                        rememberRevealState(initialValue = RevealValue.RightRevealed).apply {
+                            lastActionType = RevealActionType.SecondaryAction
+                        },
+                    actions = {
+                        primaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            ""
+                        )
+                        undoPrimaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                        )
+                        secondaryAction({}, /* Empty for testing */ {}, /* Empty for testing */ "")
+                        undoSecondaryAction(
+                            {},
+                            {
+                                Text(
+                                    "Undo Delete action with an extremely long label that should truncate."
+                                )
+                            }
+                        )
+                    }
+                ) {
+                    Button({}) { Text(/* Empty for testing */ "") }
+                }
+            }
+        }
+    }
+
     @Test
     fun swipeToReveal_showsContent(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
@@ -158,7 +244,12 @@ class SwipeToRevealScreenshotTest {
                 SwipeToReveal(
                     modifier = Modifier.testTag(TEST_TAG),
                     actions = {
-                        primaryAction({}, /* Empty for testing */ {}, /* Empty for testing */ "")
+                        primaryAction(
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            {}, /* Empty for testing */
+                            ""
+                        )
                     }
                 ) {
                     Button({}, Modifier.fillMaxWidth()) {
@@ -169,19 +260,19 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
     @Test
     fun swipeToRevealCard_showsLargePrimaryAction(@TestParameter screenSize: ScreenSize) {
         verifyScreenshotForSize(screenSize) {
             Box(modifier = Modifier.fillMaxSize()) {
                 SwipeToReveal(
                     modifier = Modifier.testTag(TEST_TAG),
-                    revealState = rememberRevealState(initialValue = RevealValue.Revealing),
+                    revealState = rememberRevealState(initialValue = RevealValue.RightRevealing),
                     actionButtonHeight = SwipeToRevealDefaults.LargeActionButtonHeight,
                     actions = {
                         primaryAction(
                             {},
                             { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                            { Text("Clear") },
                             "Clear"
                         )
                     }
@@ -194,7 +285,6 @@ class SwipeToRevealScreenshotTest {
         }
     }
 
-    @OptIn(ExperimentalWearFoundationApi::class)
     @Test
     fun swipeToRevealCard_showsLargePrimaryAndSecondaryActions(
         @TestParameter screenSize: ScreenSize
@@ -205,7 +295,7 @@ class SwipeToRevealScreenshotTest {
                     modifier = Modifier.testTag(TEST_TAG),
                     revealState =
                         rememberRevealState(
-                            initialValue = RevealValue.Revealing,
+                            initialValue = RevealValue.RightRevealing,
                             anchorWidth = SwipeToRevealDefaults.DoubleActionAnchorWidth
                         ),
                     actionButtonHeight = SwipeToRevealDefaults.LargeActionButtonHeight,
@@ -213,6 +303,7 @@ class SwipeToRevealScreenshotTest {
                         primaryAction(
                             {},
                             { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                            { Text("Clear") },
                             "Clear"
                         )
                         secondaryAction(
@@ -228,6 +319,102 @@ class SwipeToRevealScreenshotTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun swipeToReveal_showsPrimaryAndSecondaryActionsLeft(@TestParameter screenSize: ScreenSize) {
+        verifyScreenshotForSize(screenSize) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                SwipeToReveal(
+                    modifier = Modifier.testTag(TEST_TAG),
+                    revealState =
+                        rememberRevealState(
+                            initialValue = RevealValue.LeftRevealing,
+                            anchorWidth = SwipeToRevealDefaults.DoubleActionAnchorWidth,
+                            swipeDirection = SwipeDirection.Both
+                        ),
+                    actions = {
+                        primaryAction(
+                            {},
+                            { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                            { Text("Clear") },
+                            "Clear"
+                        )
+                        secondaryAction(
+                            {},
+                            { Icon(Icons.Outlined.MoreVert, contentDescription = "More") },
+                            "More"
+                        )
+                    }
+                ) {
+                    Button({}, Modifier.fillMaxWidth()) {
+                        Text("This text should be partially visible.")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun swipeToReveal_beforeButtonVisibleThreshold_doesNotShowActions(
+        @TestParameter screenSize: ScreenSize
+    ) {
+        val swipeScreenPercent = 0.05f
+
+        verifyScreenshotAfterSwipe(screenSize, testName.goldenIdentifier(), swipeScreenPercent)
+    }
+
+    @Test
+    fun swipeToReveal_beforeButtonFadeInThreshold_showsActions(
+        @TestParameter screenSize: ScreenSize
+    ) {
+        val swipeScreenPercent = 0.11f
+
+        verifyScreenshotAfterSwipe(screenSize, testName.goldenIdentifier(), swipeScreenPercent)
+    }
+
+    private fun verifyScreenshotAfterSwipe(
+        screenSize: ScreenSize,
+        goldenIdentifier: String,
+        swipeScreenPercent: Float
+    ) {
+        var screenWidthPx: Float? = null
+        rule.setContentWithTheme {
+            screenWidthPx = with(LocalDensity.current) { screenWidthDp().dp.toPx() }
+
+            ScreenConfiguration(screenSize.size) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    SwipeToReveal(
+                        modifier = Modifier.testTag(TEST_TAG),
+                        actions = {
+                            primaryAction(
+                                {},
+                                { Icon(Icons.Outlined.Close, contentDescription = "Clear") },
+                                { Text("Clear") },
+                                "Clear"
+                            )
+                            secondaryAction(
+                                {},
+                                { Icon(Icons.Outlined.MoreVert, contentDescription = "More") },
+                                "More"
+                            )
+                        }
+                    ) {
+                        Button({}, Modifier.fillMaxWidth()) { Text("Some text.") }
+                    }
+                }
+            }
+        }
+
+        rule.onNodeWithTag(TEST_TAG).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x - (screenWidthPx!! * swipeScreenPercent), center.y))
+        }
+
+        rule
+            .onNodeWithTag(TEST_TAG)
+            .captureToImage()
+            .assertAgainstGolden(screenshotRule, goldenIdentifier)
     }
 
     private fun verifyScreenshotForSize(screenSize: ScreenSize, content: @Composable () -> Unit) {

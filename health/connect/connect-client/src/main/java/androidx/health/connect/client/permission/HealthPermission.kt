@@ -16,6 +16,7 @@
 package androidx.health.connect.client.permission
 
 import androidx.annotation.RestrictTo
+import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BasalBodyTemperatureRecord
@@ -40,6 +41,7 @@ import androidx.health.connect.client.records.IntermenstrualBleedingRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
 import androidx.health.connect.client.records.MenstruationFlowRecord
 import androidx.health.connect.client.records.MenstruationPeriodRecord
+import androidx.health.connect.client.records.MindfulnessSessionRecord
 import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.OvulationTestRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
@@ -65,29 +67,23 @@ import kotlin.reflect.KClass
  *
  * @see androidx.health.connect.client.PermissionController
  */
-public class HealthPermission
-internal constructor(
-    /** type of [Record] the permission gives access for. */
-    internal val recordType: KClass<out Record>,
-    /** whether read or write access. */
-    @property:AccessType internal val accessType: Int,
-) {
+public class HealthPermission internal constructor() {
     companion object {
         /**
-         * Creates [HealthPermission] to read provided [recordType], such as `Steps::class`.
+         * Returns a permission defined in [HealthPermission] to read records of type [T], such as
+         * `StepsRecord`.
          *
-         * @return Permission object to use with
-         *   [androidx.health.connect.client.PermissionController].
+         * @return Permission to use with [androidx.health.connect.client.PermissionController].
+         * @throws IllegalArgumentException if the given record type is invalid.
          */
-        @RestrictTo(RestrictTo.Scope.LIBRARY) // To be deleted.
         @JvmStatic
-        public fun createReadPermissionLegacy(recordType: KClass<out Record>): HealthPermission {
-            return HealthPermission(recordType, AccessTypes.READ)
+        inline fun <reified T : Record> getReadPermission(): String {
+            return getReadPermission(T::class)
         }
 
         /**
-         * Returns a permission defined in [HealthPermission] to read provided [recordType], such as
-         * `Steps::class`.
+         * Returns a permission defined in [HealthPermission] to read records of type [recordType],
+         * such as `StepsRecord::class`.
          *
          * @return Permission to use with [androidx.health.connect.client.PermissionController].
          * @throws IllegalArgumentException if the given record type is invalid.
@@ -103,19 +99,21 @@ internal constructor(
         }
 
         /**
-         * Creates [HealthPermission] to write provided [recordType], such as `Steps::class`.
+         * Returns a permission defined in [HealthPermission] to write records of type [T], such as
+         * `StepsRecord:`.
          *
-         * @return Permission to use with [androidx.health.connect.client.PermissionController].
+         * @return Permission object to use with
+         *   [androidx.health.connect.client.PermissionController].
+         * @throws IllegalArgumentException if the given record type is invalid.
          */
-        @RestrictTo(RestrictTo.Scope.LIBRARY) // To be deleted.
         @JvmStatic
-        public fun createWritePermissionLegacy(recordType: KClass<out Record>): HealthPermission {
-            return HealthPermission(recordType, AccessTypes.WRITE)
+        inline fun <reified T : Record> getWritePermission(): String {
+            return getWritePermission(T::class)
         }
 
         /**
-         * Returns a permission defined in [HealthPermission] to read provided [recordType], such as
-         * `Steps::class`.
+         * Returns a permission defined in [HealthPermission] to write records of type [recordType],
+         * such as `StepsRecord::class`.
          *
          * @return Permission object to use with
          *   [androidx.health.connect.client.PermissionController].
@@ -163,6 +161,30 @@ internal constructor(
         const val PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND =
             PERMISSION_PREFIX + "READ_HEALTH_DATA_IN_BACKGROUND"
 
+        /**
+         * A permission that allows to read the entire history of health data (of any type).
+         *
+         * Without this permission:
+         * 1. Any attempt to read a single data point, via [HealthConnectClient.readRecord], older
+         *    than 30 days from before the first HealthConnect permission was granted to the calling
+         *    app, will result in an error.
+         * 2. Any other read attempts will not return data points older than 30 days from before the
+         *    first HealthConnect permission was granted to the calling app.
+         *
+         * This permission applies for the following api methods: [HealthConnectClient.readRecord],
+         * [HealthConnectClient.readRecords], [HealthConnectClient.aggregate],
+         * [HealthConnectClient.aggregateGroupByPeriod],
+         * [HealthConnectClient.aggregateGroupByDuration] and [HealthConnectClient.getChanges].
+         *
+         * This feature is dependent on the version of HealthConnect installed on the device. To
+         * check if it's available call [HealthConnectFeatures.getFeatureStatus] and pass
+         * [HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY] as an argument.
+         *
+         * @sample androidx.health.connect.client.samples.RequestHistoryReadPermission
+         */
+        const val PERMISSION_READ_HEALTH_DATA_HISTORY =
+            PERMISSION_PREFIX + "READ_HEALTH_DATA_HISTORY"
+
         // Read permissions for ACTIVITY.
         internal const val READ_ACTIVE_CALORIES_BURNED =
             PERMISSION_PREFIX + "READ_ACTIVE_CALORIES_BURNED"
@@ -193,13 +215,14 @@ internal constructor(
 
         // Read permissions for CYCLE_TRACKING.
         internal const val READ_CERVICAL_MUCUS = PERMISSION_PREFIX + "READ_CERVICAL_MUCUS"
-
-        @RestrictTo(RestrictTo.Scope.LIBRARY)
         internal const val READ_INTERMENSTRUAL_BLEEDING =
             PERMISSION_PREFIX + "READ_INTERMENSTRUAL_BLEEDING"
         internal const val READ_MENSTRUATION = PERMISSION_PREFIX + "READ_MENSTRUATION"
         internal const val READ_OVULATION_TEST = PERMISSION_PREFIX + "READ_OVULATION_TEST"
         internal const val READ_SEXUAL_ACTIVITY = PERMISSION_PREFIX + "READ_SEXUAL_ACTIVITY"
+
+        // Read permissions for WELLNESS
+        internal const val READ_MINDFULNESS_SESSION = PERMISSION_PREFIX + "READ_MINDFULNESS_SESSION"
 
         // Read permissions for NUTRITION.
         internal const val READ_HYDRATION = PERMISSION_PREFIX + "READ_HYDRATION"
@@ -252,8 +275,6 @@ internal constructor(
 
         // Write permissions for CYCLE_TRACKING.
         internal const val WRITE_CERVICAL_MUCUS = PERMISSION_PREFIX + "WRITE_CERVICAL_MUCUS"
-
-        @RestrictTo(RestrictTo.Scope.LIBRARY)
         internal const val WRITE_INTERMENSTRUAL_BLEEDING =
             PERMISSION_PREFIX + "WRITE_INTERMENSTRUAL_BLEEDING"
         internal const val WRITE_MENSTRUATION = PERMISSION_PREFIX + "WRITE_MENSTRUATION"
@@ -263,6 +284,10 @@ internal constructor(
         // Write permissions for NUTRITION.
         internal const val WRITE_HYDRATION = PERMISSION_PREFIX + "WRITE_HYDRATION"
         internal const val WRITE_NUTRITION = PERMISSION_PREFIX + "WRITE_NUTRITION"
+
+        // Write permissions for WELLNESS
+        internal const val WRITE_MINDFULNESS_SESSION =
+            PERMISSION_PREFIX + "WRITE_MINDFULNESS_SESSION"
 
         // Write permissions for SLEEP.
         internal const val WRITE_SLEEP = PERMISSION_PREFIX + "WRITE_SLEEP"
@@ -326,6 +351,8 @@ internal constructor(
                     READ_MENSTRUATION.substringAfter(READ_PERMISSION_PREFIX),
                 MenstruationPeriodRecord::class to
                     READ_MENSTRUATION.substringAfter(READ_PERMISSION_PREFIX),
+                MindfulnessSessionRecord::class to
+                    READ_MINDFULNESS_SESSION.substringAfter(READ_PERMISSION_PREFIX),
                 NutritionRecord::class to READ_NUTRITION.substringAfter(READ_PERMISSION_PREFIX),
                 OvulationTestRecord::class to
                     READ_OVULATION_TEST.substringAfter(READ_PERMISSION_PREFIX),
@@ -370,21 +397,5 @@ internal constructor(
             add(PERMISSION_WRITE_EXERCISE_ROUTE)
             add(PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
         }
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is HealthPermission) return false
-
-        if (recordType != other.recordType) return false
-        if (accessType != other.accessType) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = recordType.hashCode()
-        result = 31 * result + accessType
-        return result
     }
 }

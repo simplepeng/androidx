@@ -23,18 +23,18 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.AnimateBounds
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.EnterFromLeft
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.EnterFromLeftDelayed
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.EnterFromRight
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.EnterFromRightDelayed
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.EnterWithExpand
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.ExitToLeft
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.ExitToRight
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.ExitWithShrink
-import androidx.compose.material3.adaptive.layout.DefaultPaneMotion.Companion.NoMotion
 import androidx.compose.material3.adaptive.layout.PaneAdaptedValue.Companion.Expanded
 import androidx.compose.material3.adaptive.layout.PaneAdaptedValue.Companion.Hidden
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.AnimateBounds
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.EnterFromLeft
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.EnterFromLeftDelayed
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.EnterFromRight
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.EnterFromRightDelayed
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.EnterWithExpand
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.ExitToLeft
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.ExitToRight
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.ExitWithShrink
+import androidx.compose.material3.adaptive.layout.PaneMotion.Companion.NoMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -79,108 +79,199 @@ class PaneMotionTest {
         ExitWithShrink.assertTransitions(EnterTransition.None, mockExitWithShrinkTransition)
     }
 
-    private fun DefaultPaneMotion.assertTransitions(
+    private fun PaneMotion.assertTransitions(
         expectedEnterTransition: EnterTransition,
         expectedExitTransition: ExitTransition
     ) {
         // Can't compare equality directly because of lambda. Check string representation instead
         assertWithMessage("Enter transition of $this: ")
-            .that(mockPaneScaffoldMotionScope.enterTransition.toString())
+            .that(mockPaneScaffoldMotionDataProvider.enterTransition.toString())
             .isEqualTo(expectedEnterTransition.toString())
         assertWithMessage("Exit transition of $this: ")
-            .that(mockPaneScaffoldMotionScope.exitTransition.toString())
+            .that(mockPaneScaffoldMotionDataProvider.exitTransition.toString())
             .isEqualTo(expectedExitTransition.toString())
     }
 
     @Test
     fun slideInFromLeftOffset_noEnterFromLeftPane_equalsZero() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromRight, EnterFromRight, EnterFromRight)
-        assertThat(mockPaneScaffoldMotionScope.slideInFromLeftOffset).isEqualTo(0)
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromRight,
+            EnterFromRight,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset).isEqualTo(0)
     }
 
     @Test
-    fun slideInFromLeftOffset_withEnterFromLeftPane_useTheRightestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromLeft, EnterFromLeft, EnterFromRight)
-        assertThat(mockPaneScaffoldMotionScope.slideInFromLeftOffset)
-            .isEqualTo(
-                -mockPaneScaffoldMotionScope.paneMotionDataList[1].targetPosition.x -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].targetSize.width
-            )
+    fun slideInFromLeftOffset_withEnterFromLeftPane_useTheLeftEdgeOfPanesEnteringFromRight() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromLeft,
+            EnterFromLeft,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[2].targetLeft)
     }
 
     @Test
-    fun slideInFromLeftOffset_withEnterFromLeftDelayedPane_useTheRightestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(
+    fun slideInFromLeftOffset_withEnterFromLeftPane_useTheLeftEdgeOfPanesShown() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromLeft,
+            AnimateBounds,
+            AnimateBounds
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[1].targetLeft)
+    }
+
+    @Test
+    fun slideInFromLeftOffset_withNoEnteringFromRightOrShownPane_useTheRightestEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(EnterFromLeft, EnterFromLeft, ExitToRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[1].targetRight)
+    }
+
+    @Test
+    fun slideInFromLeftOffset_withEnterFromLeftDelayedPane_useTheSameEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
             EnterFromLeft,
             EnterFromLeftDelayed,
             EnterFromRight
         )
-        assertThat(mockPaneScaffoldMotionScope.slideInFromLeftOffset)
-            .isEqualTo(
-                -mockPaneScaffoldMotionScope.paneMotionDataList[1].targetPosition.x -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].targetSize.width
-            )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[2].targetLeft)
     }
 
     @Test
     fun slideInFromRightOffset_noEnterFromRightPane_equalsZero() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromLeft, EnterFromLeft, EnterFromLeft)
-        assertThat(mockPaneScaffoldMotionScope.slideInFromRightOffset).isEqualTo(0)
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromLeft,
+            EnterFromLeft,
+            EnterFromLeft
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromRightOffset).isEqualTo(0)
     }
 
     @Test
-    fun slideInFromRightOffset_withEnterFromRightPane_useTheLeftestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromLeft, EnterFromRight, EnterFromRight)
-        assertThat(mockPaneScaffoldMotionScope.slideInFromRightOffset)
+    fun slideInFromRightOffset_withEnterFromRightPane_useTheRightEdgeOfPanesEnteringFromLeft() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromLeft,
+            EnterFromRight,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromRightOffset)
             .isEqualTo(
-                mockPaneScaffoldMotionScope.scaffoldSize.width -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].targetPosition.x
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[0].targetRight
             )
     }
 
     @Test
-    fun slideInFromRightOffset_withEnterFromRightDelayedPane_useTheLeftestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(
+    fun slideInFromRightOffset_withEnterFromRightPane_useTheRightEdgeOfPanesShown() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            AnimateBounds,
+            AnimateBounds,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromRightOffset)
+            .isEqualTo(
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[1].targetRight
+            )
+    }
+
+    @Test
+    fun slideInFromRightOffset_withNoEnteringFromLeftOrShownPane_useTheLeftestEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(ExitToLeft, ExitToLeft, EnterFromRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromRightOffset)
+            .isEqualTo(
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[2].targetLeft
+            )
+    }
+
+    @Test
+    fun slideInFromRightOffset_withEnterFromRightDelayedPane_useTheSameEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(
             EnterFromLeft,
             EnterFromRightDelayed,
             EnterFromRight
         )
-        assertThat(mockPaneScaffoldMotionScope.slideInFromRightOffset)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideInFromRightOffset)
             .isEqualTo(
-                mockPaneScaffoldMotionScope.scaffoldSize.width -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].targetPosition.x
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[0].targetRight
             )
     }
 
     @Test
     fun slideOutToLeftOffset_noExitToLeftPane_equalsZero() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromRight, EnterFromRight, EnterFromRight)
-        assertThat(mockPaneScaffoldMotionScope.slideOutToLeftOffset).isEqualTo(0)
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromRight,
+            EnterFromRight,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToLeftOffset).isEqualTo(0)
     }
 
     @Test
-    fun slideOutToLeftOffset_withExitToLeftPane_useTheRightestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(ExitToLeft, ExitToLeft, ExitToRight)
-        assertThat(mockPaneScaffoldMotionScope.slideOutToLeftOffset)
-            .isEqualTo(
-                -mockPaneScaffoldMotionScope.paneMotionDataList[1].currentPosition.x -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].currentSize.width
-            )
+    fun slideOutToLeftOffset_withExitToLeftPane_useTheLeftEdgeOfPaneExitingToRight() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(ExitToLeft, ExitToLeft, ExitToRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[2].currentLeft)
+    }
+
+    @Test
+    fun slideOutToLeftOffset_withExitToLeftPane_useTheLeftEdgeOfPaneShown() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(ExitToLeft, AnimateBounds, AnimateBounds)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[1].currentLeft)
+    }
+
+    @Test
+    fun slideOutToLeftOffset_withNoExitToRightOrShownPane_useTheRightestEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(ExitToLeft, ExitToLeft, EnterFromRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToLeftOffset)
+            .isEqualTo(-mockPaneScaffoldMotionDataProvider[1].currentRight)
     }
 
     @Test
     fun slideOutToRightOffset_noExitToRightPane_equalsZero() {
-        mockPaneScaffoldMotionScope.updateMotions(EnterFromRight, EnterFromRight, EnterFromRight)
-        assertThat(mockPaneScaffoldMotionScope.slideOutToRightOffset).isEqualTo(0)
+        mockPaneScaffoldMotionDataProvider.updateMotions(
+            EnterFromRight,
+            EnterFromRight,
+            EnterFromRight
+        )
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToRightOffset).isEqualTo(0)
     }
 
     @Test
-    fun slideOutToRightOffset_withExitToRightPane_useTheLeftestEdge() {
-        mockPaneScaffoldMotionScope.updateMotions(ExitToLeft, ExitToRight, ExitToRight)
-        assertThat(mockPaneScaffoldMotionScope.slideOutToRightOffset)
+    fun slideOutToRightOffset_withExitToRightPane_useTheRightEdgeOfPaneExitingToLeft() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(ExitToLeft, ExitToRight, ExitToRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToRightOffset)
             .isEqualTo(
-                mockPaneScaffoldMotionScope.scaffoldSize.width -
-                    mockPaneScaffoldMotionScope.paneMotionDataList[1].currentPosition.x
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[0].currentRight
+            )
+    }
+
+    @Test
+    fun slideOutToRightOffset_withExitToRightPane_useTheRightEdgeOfPaneShown() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(AnimateBounds, AnimateBounds, ExitToRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToRightOffset)
+            .isEqualTo(
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[1].currentRight
+            )
+    }
+
+    @Test
+    fun slideOutToRightOffset_withNoExitToLeftOrShownPane_useTheLeftestEdge() {
+        mockPaneScaffoldMotionDataProvider.updateMotions(EnterFromLeft, ExitToRight, ExitToRight)
+        assertThat(mockPaneScaffoldMotionDataProvider.slideOutToRightOffset)
+            .isEqualTo(
+                mockPaneScaffoldMotionDataProvider.scaffoldSize.width -
+                    mockPaneScaffoldMotionDataProvider[1].currentLeft
             )
     }
 }
@@ -303,43 +394,40 @@ private val ExpectedThreePaneMotions =
 
 @Suppress("PrimitiveInCollection") // No way to get underlying Long of IntSize or IntOffset
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
-private val mockPaneScaffoldMotionScope =
-    ThreePaneScaffoldMotionScopeImpl().apply {
-        updateThreePaneMotion(
-            ThreePaneMotion(ExitToLeft, EnterFromRight, EnterFromRight),
-            MockThreePaneOrder
-        )
+private val mockPaneScaffoldMotionDataProvider =
+    ThreePaneScaffoldMotionDataProvider().apply {
+        update(ThreePaneMotion(ExitToLeft, EnterFromRight, EnterFromRight), MockThreePaneOrder)
         scaffoldSize = IntSize(1000, 1000)
-        paneMotionDataList[0].apply {
+        this[0].apply {
             motion = ExitToLeft
-            currentSize = IntSize(1, 2)
-            currentPosition = IntOffset(3, 4)
+            originSize = IntSize(1, 2)
+            originPosition = IntOffset(3, 4)
             targetSize = IntSize(3, 4)
             targetPosition = IntOffset(5, 6)
         }
-        paneMotionDataList[1].apply {
+        this[1].apply {
             motion = ExitToLeft
-            currentSize = IntSize(3, 4)
-            currentPosition = IntOffset(5, 6)
+            originSize = IntSize(3, 4)
+            originPosition = IntOffset(5, 6)
             targetSize = IntSize(5, 6)
             targetPosition = IntOffset(7, 8)
         }
-        paneMotionDataList[2].apply {
+        this[2].apply {
             motion = ExitToLeft
-            currentSize = IntSize(5, 6)
-            currentPosition = IntOffset(7, 8)
+            originSize = IntSize(5, 6)
+            originPosition = IntOffset(7, 8)
             targetSize = IntSize(7, 8)
             targetPosition = IntOffset(9, 0)
         }
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
-private fun ThreePaneScaffoldMotionScopeImpl.updateMotions(
+private fun ThreePaneScaffoldMotionDataProvider.updateMotions(
     primaryPaneMotion: PaneMotion,
     secondaryPaneMotion: PaneMotion,
     tertiaryPaneMotion: PaneMotion
 ) {
-    updateThreePaneMotion(
+    update(
         ThreePaneMotion(primaryPaneMotion, secondaryPaneMotion, tertiaryPaneMotion),
         MockThreePaneOrder
     )
@@ -347,42 +435,44 @@ private fun ThreePaneScaffoldMotionScopeImpl.updateMotions(
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockEnterFromLeftTransition =
-    slideInHorizontally(mockPaneScaffoldMotionScope.positionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideInFromLeftOffset
+    slideInHorizontally(PaneMotionDefaults.OffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockEnterFromRightTransition =
-    slideInHorizontally(mockPaneScaffoldMotionScope.positionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideInFromRightOffset
+    slideInHorizontally(PaneMotionDefaults.OffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideInFromRightOffset
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockEnterFromLeftDelayedTransition =
-    slideInHorizontally(mockPaneScaffoldMotionScope.delayedPositionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideInFromLeftOffset
+    slideInHorizontally(PaneMotionDefaults.DelayedOffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideInFromLeftOffset
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockEnterFromRightDelayedTransition =
-    slideInHorizontally(mockPaneScaffoldMotionScope.delayedPositionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideInFromLeftOffset
+    slideInHorizontally(PaneMotionDefaults.DelayedOffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideInFromRightOffset
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockExitToLeftTransition =
-    slideOutHorizontally(mockPaneScaffoldMotionScope.positionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideOutToLeftOffset
+    slideOutHorizontally(PaneMotionDefaults.OffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideOutToLeftOffset
     }
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockExitToRightTransition =
-    slideOutHorizontally(mockPaneScaffoldMotionScope.positionAnimationSpec) {
-        mockPaneScaffoldMotionScope.slideOutToRightOffset
+    slideOutHorizontally(PaneMotionDefaults.OffsetAnimationSpec) {
+        mockPaneScaffoldMotionDataProvider.slideOutToRightOffset
     }
 
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockEnterWithExpandTransition =
-    expandHorizontally(mockPaneScaffoldMotionScope.sizeAnimationSpec, Alignment.CenterHorizontally)
+    expandHorizontally(PaneMotionDefaults.SizeAnimationSpec, Alignment.CenterHorizontally)
 
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val mockExitWithShrinkTransition =
-    shrinkHorizontally(mockPaneScaffoldMotionScope.sizeAnimationSpec, Alignment.CenterHorizontally)
+    shrinkHorizontally(PaneMotionDefaults.SizeAnimationSpec, Alignment.CenterHorizontally)

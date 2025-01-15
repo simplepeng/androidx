@@ -21,19 +21,32 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
-import androidx.build.Publish
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("AndroidXPlugin")
     id("AndroidXComposePlugin")
-    id("com.android.library")
 }
 
 androidXMultiplatform {
-    android()
+    androidLibrary {
+        namespace = "androidx.compose.material3.common"
+        withAndroidTestOnDeviceBuilder {
+            it.compilationName = "instrumentedTest"
+            it.defaultSourceSetName = "androidInstrumentedTest"
+            it.sourceSetTreeName = "test"
+        }
+        withAndroidTestOnJvmBuilder {
+            it.defaultSourceSetName = "androidUnitTest"
+        }
+
+        compileSdk = 35
+        aarMetadata.minCompileSdk = 35
+    }
     jvmStubs()
     linuxX64Stubs()
 
@@ -97,10 +110,6 @@ androidXMultiplatform {
     }
 }
 
-android {
-    compileSdk 35
-    namespace "androidx.compose.material3.common"
-}
 
 androidx {
     name = "Compose Material 3 Common"
@@ -113,4 +122,5 @@ androidx {
     legacyDisableKotlinStrictApiMode = true
     metalavaK2UastEnabled = false
     samples(project(":compose:material3:material3-common:material3-common-samples"))
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }

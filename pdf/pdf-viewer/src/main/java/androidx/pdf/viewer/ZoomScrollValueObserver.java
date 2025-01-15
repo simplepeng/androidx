@@ -21,8 +21,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.pdf.ViewState;
 import androidx.pdf.find.FindInFileView;
@@ -31,6 +29,9 @@ import androidx.pdf.util.ObservableValue;
 import androidx.pdf.widget.ZoomView;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 @RestrictTo(RestrictTo.Scope.LIBRARY)
 public class ZoomScrollValueObserver implements ObservableValue.ValueObserver<ZoomView.ZoomScroll> {
@@ -43,6 +44,7 @@ public class ZoomScrollValueObserver implements ObservableValue.ValueObserver<Zo
     private boolean mIsAnnotationIntentResolvable;
     private final SelectionActionMode mSelectionActionMode;
     private final ObservableValue<ViewState> mViewState;
+    private final ImmersiveModeRequester mImmersiveModeRequester;
 
     private boolean mIsPageScrollingUp;
 
@@ -51,7 +53,8 @@ public class ZoomScrollValueObserver implements ObservableValue.ValueObserver<Zo
             @NonNull LayoutHandler layoutHandler, @NonNull FloatingActionButton annotationButton,
             @NonNull FindInFileView findInFileView, boolean isAnnotationIntentResolvable,
             @NonNull SelectionActionMode selectionActionMode,
-            @NonNull ObservableValue<ViewState> viewState) {
+            @NonNull ObservableValue<ViewState> viewState,
+            @NonNull ImmersiveModeRequester immersiveModeRequester) {
         mZoomView = zoomView;
         mPaginatedView = paginatedView;
         mLayoutHandler = layoutHandler;
@@ -62,11 +65,12 @@ public class ZoomScrollValueObserver implements ObservableValue.ValueObserver<Zo
         mViewState = viewState;
         mAnnotationButtonHandler = new Handler(Looper.getMainLooper());
         mIsPageScrollingUp = false;
+        mImmersiveModeRequester = immersiveModeRequester;
     }
 
     @Override
-    public void onChange(@Nullable ZoomView.ZoomScroll oldPosition,
-            @Nullable ZoomView.ZoomScroll position) {
+    public void onChange(ZoomView.@Nullable ZoomScroll oldPosition,
+            ZoomView.@Nullable ZoomScroll position) {
         if (mPaginatedView == null || !mPaginatedView.getModel().isInitialized()
                 || position == null || mPaginatedView.getModel().getSize() == 0) {
             return;
@@ -93,23 +97,20 @@ public class ZoomScrollValueObserver implements ObservableValue.ValueObserver<Zo
 
             if (!isAnnotationButtonVisible() && position.scrollY == 0
                     && mFindInFileView.getVisibility() == View.GONE) {
-                mAnnotationButton.show();
+                mImmersiveModeRequester.requestImmersiveModeChange(false);
             } else if (isAnnotationButtonVisible() && mIsPageScrollingUp) {
                 clearAnnotationHandler();
                 return;
             }
             if (position.scrollY == oldPosition.scrollY) {
-                mAnnotationButtonHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (position.scrollY != 0) {
-                            mAnnotationButton.hide();
-                        }
+                mAnnotationButtonHandler.post(() -> {
+                    if (position.scrollY != 0) {
+                        mImmersiveModeRequester.requestImmersiveModeChange(true);
                     }
                 });
             }
         } else if (mPaginatedView.isConfigurationChanged()
-                && position.scrollY != oldPosition.scrollY) {
+                && !position.stable) {
             mPaginatedView.setConfigurationChanged(false);
         }
     }

@@ -6,13 +6,15 @@
  * modifying its settings.
  */
 
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
-import org.jetbrains.kotlin.gradle.dsl.ExplicitApiMode
 
 plugins {
     id("AndroidXPlugin")
     id("com.android.library")
+    alias(libs.plugins.kotlinSerialization)
 }
 
 androidXMultiplatform {
@@ -22,10 +24,6 @@ androidXMultiplatform {
     linux()
     mac()
 
-    kotlin {
-        explicitApi = ExplicitApiMode.Strict
-    }
-
     defaultPlatform(PlatformIdentifier.ANDROID)
 
     sourceSets {
@@ -34,11 +32,13 @@ androidXMultiplatform {
                 api(libs.kotlinStdlib)
                 api("androidx.annotation:annotation:1.8.0")
                 api(projectOrArtifact(":lifecycle:lifecycle-common"))
+                api(libs.kotlinSerializationCore)
             }
         }
 
         commonTest {
             dependencies {
+                implementation(project(":lifecycle:lifecycle-runtime"))
                 implementation(project(":kruth:kruth"))
                 implementation(libs.kotlinTest)
                 implementation(libs.kotlinTestCommon)
@@ -60,6 +60,7 @@ androidXMultiplatform {
             dependencies {
                 api("androidx.annotation:annotation:1.8.1")
                 implementation("androidx.core:core-ktx:1.13.1")
+                implementation(projectOrArtifact(":core:core-viewtree"))
                 api(libs.kotlinStdlib)
             }
         }
@@ -158,14 +159,16 @@ android {
     buildTypes.configureEach {
         consumerProguardFiles("proguard-rules.pro")
     }
-    namespace "androidx.savedstate"
+    namespace = "androidx.savedstate"
     experimentalProperties["android.lint.useK2Uast"] = false // TODO(b/345531033)
 }
 
 androidx {
     name = "Saved State"
     type = LibraryType.PUBLISHED_LIBRARY
+    samples(project(":savedstate:savedstate-samples"))
     inceptionYear = "2018"
     description = "Android Lifecycle Saved State"
-    legacyDisableKotlinStrictApiMode = true
+    metalavaK2UastEnabled = false
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }

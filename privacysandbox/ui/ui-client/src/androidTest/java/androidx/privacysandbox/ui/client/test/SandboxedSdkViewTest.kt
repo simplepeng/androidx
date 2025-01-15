@@ -20,30 +20,20 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.res.Configuration
-import android.graphics.Rect
-import android.os.Bundle
 import android.os.IBinder
-import android.os.SystemClock
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams
 import android.view.ViewTreeObserver
 import android.widget.LinearLayout
-import android.widget.ScrollView
+import android.widget.TextView
 import androidx.lifecycle.Lifecycle
-import androidx.privacysandbox.ui.client.view.SandboxedSdkUiSessionState
-import androidx.privacysandbox.ui.client.view.SandboxedSdkUiSessionStateChangedListener
 import androidx.privacysandbox.ui.client.view.SandboxedSdkView
 import androidx.privacysandbox.ui.core.BackwardCompatUtil
-import androidx.privacysandbox.ui.core.SandboxedSdkViewUiInfo
 import androidx.privacysandbox.ui.core.SandboxedUiAdapter
+import androidx.privacysandbox.ui.integration.testingutils.TestEventListener
 import androidx.privacysandbox.ui.provider.AbstractSandboxedUiAdapter
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
@@ -52,11 +42,9 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.testutils.withActivity
 import com.google.common.truth.Truth.assertThat
-import java.lang.Long.min
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
-import kotlin.Long.Companion.MAX_VALUE
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -85,7 +73,8 @@ class SandboxedSdkViewTest {
     private lateinit var view: SandboxedSdkView
     private lateinit var layoutParams: LayoutParams
     private lateinit var testSandboxedUiAdapter: TestSandboxedUiAdapter
-    private lateinit var stateChangedListener: StateChangedListener
+    private lateinit var eventListener: TestEventListener
+    private lateinit var linearLayout: LinearLayout
     private var mainLayoutWidth = -1
     private var mainLayoutHeight = -1
 
@@ -101,146 +90,7 @@ class SandboxedSdkViewTest {
             clientExecutor: Executor,
             client: SandboxedUiAdapter.SessionClient
         ) {
-            client.onSessionError(Exception("Error in openSession()"))
-        }
-    }
-
-    class TestSandboxedUiAdapter(private val signalOptions: Set<String> = setOf("option")) :
-        AbstractSandboxedUiAdapter() {
-
-        var isSessionOpened = false
-        var internalClient: SandboxedUiAdapter.SessionClient? = null
-        var testSession: TestSession? = null
-        var isZOrderOnTop = true
-        var inputToken: IBinder? = null
-
-        // When set to true, the onSessionOpened callback will only be invoked when specified
-        // by the test. This is to test race conditions when the session is being loaded.
-        var delayOpenSessionCallback = false
-
-        private val openSessionLatch = CountDownLatch(1)
-        private val resizeLatch = CountDownLatch(1)
-        private val configChangedLatch = CountDownLatch(1)
-
-        override fun openSession(
-            context: Context,
-            windowInputToken: IBinder,
-            initialWidth: Int,
-            initialHeight: Int,
-            isZOrderOnTop: Boolean,
-            clientExecutor: Executor,
-            client: SandboxedUiAdapter.SessionClient
-        ) {
-            internalClient = client
-            testSession = TestSession(context, initialWidth, initialHeight, signalOptions)
-            if (!delayOpenSessionCallback) {
-                client.onSessionOpened(testSession!!)
-            }
-            isSessionOpened = true
-            this.isZOrderOnTop = isZOrderOnTop
-            this.inputToken = windowInputToken
-            openSessionLatch.countDown()
-        }
-
-        internal fun sendOnSessionOpened() {
-            internalClient?.onSessionOpened(testSession!!)
-        }
-
-        internal fun assertSessionOpened() {
-            assertThat(openSessionLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-        }
-
-        internal fun assertSessionNotOpened() {
-            assertThat(openSessionLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
-        }
-
-        internal fun wasNotifyResizedCalled(): Boolean {
-            return resizeLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)
-        }
-
-        internal fun wasOnConfigChangedCalled(): Boolean {
-            return configChangedLatch.await(UI_INTENSIVE_TIMEOUT, TimeUnit.MILLISECONDS)
-        }
-
-        inner class TestSession(
-            context: Context,
-            initialWidth: Int,
-            initialHeight: Int,
-            override val signalOptions: Set<String>
-        ) : SandboxedUiAdapter.Session {
-
-            var zOrderChangedLatch: CountDownLatch = CountDownLatch(1)
-            var shortestGapBetweenUiChangeEvents = MAX_VALUE
-            private var notifyUiChangedLatch: CountDownLatch = CountDownLatch(1)
-            private var latestUiChange: Bundle = Bundle()
-            private var hasReceivedFirstUiChange = false
-            private var timeReceivedLastUiChange = SystemClock.elapsedRealtime()
-
-            override val view: View = View(context)
-
-            init {
-                view.layoutParams = LinearLayout.LayoutParams(initialWidth, initialHeight)
-            }
-
-            fun requestResize(width: Int, height: Int) {
-                internalClient?.onResizeRequested(width, height)
-            }
-
-            override fun notifyResized(width: Int, height: Int) {
-                resizeLatch.countDown()
-            }
-
-            override fun notifyZOrderChanged(isZOrderOnTop: Boolean) {
-                this@TestSandboxedUiAdapter.isZOrderOnTop = isZOrderOnTop
-                zOrderChangedLatch.countDown()
-            }
-
-            override fun notifyConfigurationChanged(configuration: Configuration) {
-                configChangedLatch.countDown()
-            }
-
-            override fun close() {}
-
-            override fun notifyUiChanged(uiContainerInfo: Bundle) {
-                if (hasReceivedFirstUiChange) {
-                    shortestGapBetweenUiChangeEvents =
-                        min(
-                            shortestGapBetweenUiChangeEvents,
-                            SystemClock.elapsedRealtime() - timeReceivedLastUiChange
-                        )
-                }
-                hasReceivedFirstUiChange = true
-                timeReceivedLastUiChange = SystemClock.elapsedRealtime()
-                latestUiChange = uiContainerInfo
-                notifyUiChangedLatch.countDown()
-            }
-
-            fun assertNoSubsequentUiChanges() {
-                notifyUiChangedLatch = CountDownLatch(1)
-                assertThat(notifyUiChangedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
-            }
-
-            /**
-             * Performs the action specified in the Runnable, and waits for the next UI change.
-             *
-             * Throws an [AssertionError] if no UI change is reported.
-             */
-            fun runAndRetrieveNextUiChange(runnable: Runnable): SandboxedSdkViewUiInfo {
-                notifyUiChangedLatch = CountDownLatch(1)
-                runnable.run()
-                assertThat(notifyUiChangedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-                return SandboxedSdkViewUiInfo.fromBundle(latestUiChange)
-            }
-        }
-    }
-
-    open class StateChangedListener : SandboxedSdkUiSessionStateChangedListener {
-        var currentState: SandboxedSdkUiSessionState? = null
-        var latch: CountDownLatch = CountDownLatch(1)
-
-        override fun onStateChanged(state: SandboxedSdkUiSessionState) {
-            currentState = state
-            latch.countDown()
+            clientExecutor.execute { client.onSessionError(Exception("Error in openSession()")) }
         }
     }
 
@@ -249,8 +99,8 @@ class SandboxedSdkViewTest {
         context = InstrumentationRegistry.getInstrumentation().targetContext
         activityScenarioRule.withActivity {
             view = SandboxedSdkView(this)
-            stateChangedListener = StateChangedListener()
-            view.addStateChangedListener(stateChangedListener)
+            eventListener = TestEventListener()
+            view.setEventListener(eventListener)
             layoutParams =
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -264,44 +114,56 @@ class SandboxedSdkViewTest {
     }
 
     @Test
-    fun addAndRemoveStateChangeListenerTest() {
-        // Initial state (Idle) should be sent to listener
-        var stateListenerManager: SandboxedSdkView.StateListenerManager = view.stateListenerManager
-        assertThat(stateChangedListener.latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-        assertThat(stateChangedListener.currentState).isEqualTo(SandboxedSdkUiSessionState.Idle)
-
-        // While registered, listener should receive state change
-        stateChangedListener.latch = CountDownLatch(1)
-        stateListenerManager.currentUiSessionState = SandboxedSdkUiSessionState.Active
-        assertThat(stateChangedListener.latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-        assertThat(stateChangedListener.currentState).isEqualTo(SandboxedSdkUiSessionState.Active)
-
-        // While unregistered, listener should not receive state change
-        stateChangedListener.latch = CountDownLatch(1)
-        view.removeStateChangedListener(stateChangedListener)
-        stateListenerManager.currentUiSessionState = SandboxedSdkUiSessionState.Loading
-        assertThat(stateChangedListener.latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
+    fun eventListenerErrorTest() {
+        activityScenarioRule.withActivity { view.setAdapter(FailingTestSandboxedUiAdapter()) }
+        addViewToLayout()
+        assertThat(eventListener.errorLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
+        assertThat(eventListener.error?.message).isEqualTo("Error in openSession()")
     }
 
     @Test
-    fun reentrantDispatchTest() {
-        val latch = CountDownLatch(2)
-        var currentState: SandboxedSdkUiSessionState? = SandboxedSdkUiSessionState.Idle
+    fun addAndRemoveEventListenerTest() {
+        // Initially no events are received when the session is not open.
+        assertThat(eventListener.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
 
-        val listener1 = SandboxedSdkUiSessionStateChangedListener {
-            if (it != currentState) {
-                currentState = it
-                view.stateListenerManager.currentUiSessionState = SandboxedSdkUiSessionState.Active
-                latch.countDown()
-            }
-        }
+        // When session is open, the events are received
+        addViewToLayout()
+        assertThat(eventListener.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
 
-        view.addStateChangedListener(listener1)
-        assertThat(currentState).isEqualTo(SandboxedSdkUiSessionState.Idle)
+        // Remove the view from layout to close the session.
+        removeAllViewsFromLayout()
+        assertThat(eventListener.sessionClosedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
 
-        view.stateListenerManager.currentUiSessionState = SandboxedSdkUiSessionState.Loading
-        assertThat(latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-        assertThat(currentState).isEqualTo(SandboxedSdkUiSessionState.Active)
+        eventListener.uiDisplayedLatch = CountDownLatch(1)
+
+        // Remove the listener from the view.
+        view.setEventListener(null)
+
+        // Add view to layout again to start the session. The latches will not count down this time.
+        addViewToLayout()
+        assertThat(eventListener.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
+    }
+
+    @Test
+    fun newEventListenerOverridesOldListenerTest() {
+        val eventListener1 = TestEventListener()
+        val eventListener2 = TestEventListener()
+        view.setEventListener(eventListener1)
+        view.setEventListener(eventListener2)
+
+        activityScenarioRule.withActivity { view.setAdapter(FailingTestSandboxedUiAdapter()) }
+        addViewToLayout()
+        assertThat(eventListener1.errorLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
+        assertThat(eventListener2.errorLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
+
+        activityScenarioRule.withActivity { view.setAdapter(testSandboxedUiAdapter) }
+        assertThat(eventListener1.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
+        assertThat(eventListener2.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
+
+        removeAllViewsFromLayout()
+        assertThat(eventListener1.sessionClosedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS))
+            .isFalse()
+        assertThat(eventListener2.sessionClosedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
     }
 
     @Test
@@ -436,6 +298,86 @@ class SandboxedSdkViewTest {
     }
 
     @Test
+    fun overrideProviderViewLayoutParams() {
+        val providerViewWidth = (0..1000).random()
+        val providerViewHeight = (0..1000).random()
+
+        class CustomSession : AbstractSandboxedUiAdapter.AbstractSession() {
+            override val view = View(context)
+
+            init {
+                view.layoutParams = LinearLayout.LayoutParams(providerViewWidth, providerViewHeight)
+            }
+        }
+
+        class CustomUiAdapter : AbstractSandboxedUiAdapter() {
+            override fun openSession(
+                context: Context,
+                windowInputToken: IBinder,
+                initialWidth: Int,
+                initialHeight: Int,
+                isZOrderOnTop: Boolean,
+                clientExecutor: Executor,
+                client: SandboxedUiAdapter.SessionClient
+            ) {
+                clientExecutor.execute { client.onSessionOpened(CustomSession()) }
+            }
+        }
+
+        view.setAdapter(CustomUiAdapter())
+        addViewToLayout(waitToBeActive = true)
+        val contentView = view.getChildAt(0)
+
+        assertThat(contentView.layoutParams.width).isNotEqualTo(providerViewWidth)
+        assertThat(contentView.layoutParams.height).isNotEqualTo(providerViewHeight)
+        assertThat(contentView.layoutParams.width).isEqualTo(LinearLayout.LayoutParams.WRAP_CONTENT)
+        assertThat(contentView.layoutParams.height)
+            .isEqualTo(LinearLayout.LayoutParams.WRAP_CONTENT)
+    }
+
+    // Verifies that session view resizing does not affect SandboxedSdkView's size
+    @Test
+    fun sandboxedSdkViewSizeUnchangedWhenSessionViewSizeChanges() {
+        val initialWidth = 100
+        val initialHeight = 100
+        view.layoutParams = LinearLayout.LayoutParams(initialWidth, initialHeight)
+
+        class CustomSession : AbstractSandboxedUiAdapter.AbstractSession() {
+            override val view = TextView(context)
+
+            init {
+                view.text = "Test View"
+            }
+        }
+
+        val customSession = CustomSession()
+
+        class CustomUiAdapter : AbstractSandboxedUiAdapter() {
+            override fun openSession(
+                context: Context,
+                windowInputToken: IBinder,
+                initialWidth: Int,
+                initialHeight: Int,
+                isZOrderOnTop: Boolean,
+                clientExecutor: Executor,
+                client: SandboxedUiAdapter.SessionClient
+            ) {
+                clientExecutor.execute { client.onSessionOpened(customSession) }
+            }
+        }
+
+        view.setAdapter(CustomUiAdapter())
+        addViewToLayout(waitToBeActive = true)
+
+        customSession.view.layout(0, 0, initialWidth * 2, initialHeight * 2)
+
+        assertThat(customSession.view.width).isEqualTo(initialWidth * 2)
+        assertThat(customSession.view.height).isEqualTo(initialHeight * 2)
+        assertThat(view.width).isEqualTo(initialWidth)
+        assertThat(view.height).isEqualTo(initialHeight)
+    }
+
+    @Test
     fun onLayoutTestWithSizeChange() {
         addViewToLayout()
         testSandboxedUiAdapter.assertSessionOpened()
@@ -444,6 +386,31 @@ class SandboxedSdkViewTest {
         }
         assertThat(testSandboxedUiAdapter.wasNotifyResizedCalled()).isTrue()
         assertTrue(view.width == 100 && view.height == 200)
+    }
+
+    @Test
+    fun onPaddingSetTest() {
+        addViewToLayout()
+        testSandboxedUiAdapter.assertSessionOpened()
+        activityScenarioRule.withActivity { view.setPadding(10, 10, 10, 10) }
+        assertThat(testSandboxedUiAdapter.wasNotifyResizedCalled()).isTrue()
+    }
+
+    @Test
+    fun signalsSentWhenPaddingApplied() {
+        addViewToLayoutAndWaitToBeActive()
+        val session = testSandboxedUiAdapter.testSession!!
+        val paddingLeft = 10
+        val paddingTop = 10
+        val paddingRight = 20
+        val paddingBottom = 20
+        session.runAndRetrieveNextUiChange {
+            activityScenarioRule.withActivity {
+                view.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom)
+            }
+        }
+        assertThat(session.shortestGapBetweenUiChangeEvents)
+            .isAtLeast(SHORTEST_TIME_BETWEEN_SIGNALS_MS)
     }
 
     @Test
@@ -563,59 +530,6 @@ class SandboxedSdkViewTest {
         assertThat(testSandboxedUiAdapter.inputToken).isEqualTo(token)
     }
 
-    @Test
-    fun getBoundingParent_withoutScrollParent() {
-        addViewToLayout()
-        onView(withId(R.id.mainlayout)).check(matches(isDisplayed()))
-        activityScenarioRule.withActivity {
-            val boundingRect = Rect()
-            assertThat(view.maybeUpdateClippingBounds(boundingRect)).isTrue()
-            val rootView: ViewGroup = findViewById(android.R.id.content)
-            val rootRect = Rect()
-            rootView.getGlobalVisibleRect(rootRect)
-            assertThat(boundingRect).isEqualTo(rootRect)
-        }
-    }
-
-    @Test
-    fun getBoundingParent_withScrollParent() {
-        lateinit var scrollView: ScrollView
-        activityScenarioRule.withActivity {
-            scrollView = findViewById<ScrollView>(R.id.scroll_view)
-            scrollView.visibility = View.VISIBLE
-            scrollView.addView(view)
-        }
-        onView(withId(R.id.scroll_view)).check(matches(isDisplayed()))
-
-        val scrollViewRect = Rect()
-        assertThat(scrollView.getGlobalVisibleRect(scrollViewRect)).isTrue()
-        val boundingRect = Rect()
-        assertThat(view.maybeUpdateClippingBounds(boundingRect)).isTrue()
-        assertThat(scrollViewRect).isEqualTo(boundingRect)
-    }
-
-    /**
-     * Ensures that ACTIVE will only be sent to registered state change listeners after the next
-     * frame commit.
-     */
-    @Test
-    fun activeStateOnlySentAfterNextFrameCommitted() {
-        addViewToLayout()
-        var latch = CountDownLatch(1)
-        view.addStateChangedListener {
-            if (it == SandboxedSdkUiSessionState.Active) {
-                latch.countDown()
-            }
-        }
-        assertThat(latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
-
-        // Manually set state to IDLE.
-        // Subsequent frame commits should not flip the state back to ACTIVE.
-        view.stateListenerManager.currentUiSessionState = SandboxedSdkUiSessionState.Idle
-        latch = CountDownLatch(1)
-        assertThat(latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isFalse()
-    }
-
     @Ignore("b/307829956")
     @Test
     fun requestResizeWithMeasureSpecAtMost_withinParentBounds() {
@@ -683,14 +597,11 @@ class SandboxedSdkViewTest {
         val session = testSandboxedUiAdapter.testSession!!
         val newWidth = 500
         val newHeight = 500
-        val sandboxedSdkViewUiInfo =
-            session.runAndRetrieveNextUiChange {
-                activityScenarioRule.withActivity {
-                    view.layoutParams = LinearLayout.LayoutParams(newWidth, newHeight)
-                }
+        session.runAndRetrieveNextUiChange {
+            activityScenarioRule.withActivity {
+                view.layoutParams = LinearLayout.LayoutParams(newWidth, newHeight)
             }
-        assertThat(sandboxedSdkViewUiInfo.uiContainerWidth).isEqualTo(newWidth)
-        assertThat(sandboxedSdkViewUiInfo.uiContainerHeight).isEqualTo(newHeight)
+        }
         assertThat(session.shortestGapBetweenUiChangeEvents)
             .isAtLeast(SHORTEST_TIME_BETWEEN_SIGNALS_MS)
     }
@@ -759,28 +670,27 @@ class SandboxedSdkViewTest {
     }
 
     /**
-     * Changes the size of the view several times in quick succession, and verifies that the signals
-     * sent match the width of the final change.
+     * Changes the alpha of the view several times in quick succession, and verifies that the
+     * signals sent match the alpha of the final change.
      */
     @Test
     fun signalsSentAreFresh() {
         addViewToLayoutAndWaitToBeActive()
         val session = testSandboxedUiAdapter.testSession!!
-        var currentWidth = view.width
-        var currentHeight = view.height
+        var currentAlpha = view.alpha
         val sandboxedSdkViewUiInfo =
             session.runAndRetrieveNextUiChange {
                 activityScenarioRule.withActivity {
                     for (i in 1..5) {
-                        view.layoutParams =
-                            LinearLayout.LayoutParams(currentWidth + 10, currentHeight + 10)
-                        currentWidth += 10
-                        currentHeight += 10
+                        currentAlpha += 0.2f
+                        if (currentAlpha > 1.0f) {
+                            currentAlpha = 0.1f
+                        }
+                        view.alpha = currentAlpha
                     }
                 }
             }
-        assertThat(sandboxedSdkViewUiInfo.uiContainerWidth).isEqualTo(currentWidth)
-        assertThat(sandboxedSdkViewUiInfo.uiContainerHeight).isEqualTo(currentHeight)
+        assertThat(sandboxedSdkViewUiInfo.uiContainerOpacityHint).isEqualTo(currentAlpha)
     }
 
     /**
@@ -854,19 +764,23 @@ class SandboxedSdkViewTest {
 
     private fun addViewToLayout(waitToBeActive: Boolean = false, viewToAdd: View = view) {
         activityScenarioRule.withActivity {
-            val mainLayout: LinearLayout = findViewById(R.id.mainlayout)
-            mainLayoutWidth = mainLayout.width
-            mainLayoutHeight = mainLayout.height
-            mainLayout.addView(viewToAdd)
+            linearLayout = findViewById(R.id.mainlayout)
+            mainLayoutWidth = linearLayout.width
+            mainLayoutHeight = linearLayout.height
+            linearLayout.addView(viewToAdd)
         }
         if (waitToBeActive) {
-            val latch = CountDownLatch(1)
-            view.addStateChangedListener {
-                if (it == SandboxedSdkUiSessionState.Active) {
-                    latch.countDown()
-                }
-            }
-            assertThat(latch.await(TIMEOUT, TimeUnit.MILLISECONDS)).isTrue()
+            val eventListener = TestEventListener()
+            view.setEventListener(eventListener)
+            assertThat(eventListener.uiDisplayedLatch.await(TIMEOUT, TimeUnit.MILLISECONDS))
+                .isTrue()
+        }
+    }
+
+    private fun removeAllViewsFromLayout() {
+        activityScenarioRule.withActivity {
+            val mainLayout: LinearLayout = findViewById(R.id.mainlayout)
+            mainLayout.removeAllViews()
         }
     }
 

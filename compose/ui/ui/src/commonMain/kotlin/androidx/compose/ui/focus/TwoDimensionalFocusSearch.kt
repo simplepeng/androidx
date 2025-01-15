@@ -17,6 +17,8 @@
 package androidx.compose.ui.focus
 
 import androidx.compose.runtime.collection.MutableVector
+import androidx.compose.ui.ComposeUiFlags
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusDirection.Companion.Down
 import androidx.compose.ui.focus.FocusDirection.Companion.Enter
 import androidx.compose.ui.focus.FocusDirection.Companion.Left
@@ -30,6 +32,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.Nodes
 import androidx.compose.ui.node.requireLayoutNode
+import androidx.compose.ui.node.requireOwner
 import androidx.compose.ui.node.visitChildren
 import androidx.compose.ui.util.fastCoerceAtLeast
 
@@ -166,12 +169,24 @@ private fun FocusTargetNode.generateAndSearchChildren(
         return true
     }
 
+    val focusTransactionManager = requireTransactionManager()
+    val generationBeforeSearch = focusTransactionManager.generation
+    val activeNodeBeforeSearch = requireOwner().focusOwner.activeFocusTargetNode
     // Generate more items until searchChildren() finds a result.
     return searchBeyondBounds(direction) {
-        // Search among the added children. (The search continues as long as we return null).
-        searchChildren(focusedItem, direction, onFound).takeIf { found ->
-            // Stop searching when we find a result or if we don't have any more content.
-            found || !hasMoreContent
+        if (
+            generationBeforeSearch != focusTransactionManager.generation ||
+                (@OptIn(ExperimentalComposeUiApi::class) ComposeUiFlags.isTrackFocusEnabled &&
+                    activeNodeBeforeSearch !== requireOwner().focusOwner.activeFocusTargetNode)
+        ) {
+            // A new focus change was triggered during searchBeyondBounds.
+            true
+        } else {
+            // Search among the added children. (The search continues as long as we return null).
+            searchChildren(focusedItem, direction, onFound).takeIf { found ->
+                // Stop searching when we find a result or if we don't have any more content.
+                found || !hasMoreContent
+            }
         }
     } ?: false
 }

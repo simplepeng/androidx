@@ -42,7 +42,6 @@ dependencies {
     implementation(libs.kspEmbeddable)
     // For Kotlin source compilation and KAPT
     implementation(libs.kotlinCompilerEmbeddable)
-    implementation(libs.kotlinDaemonEmbeddable)
     implementation(libs.kotlinAnnotationProcessingEmbeddable)
 }
 

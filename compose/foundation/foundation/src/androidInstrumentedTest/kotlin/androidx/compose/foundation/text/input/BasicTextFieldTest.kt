@@ -18,11 +18,16 @@ package androidx.compose.foundation.text.input
 
 import android.os.Build
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.style.BackgroundColorSpan
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.internal.readAnnotatedString
+import androidx.compose.foundation.internal.readText
+import androidx.compose.foundation.internal.toClipEntry
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,7 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.TEST_FONT_FAMILY
 import androidx.compose.foundation.text.computeSizeForDefaultText
 import androidx.compose.foundation.text.input.TextFieldBuffer.ChangeList
-import androidx.compose.foundation.text.input.internal.selection.FakeClipboardManager
+import androidx.compose.foundation.text.input.internal.selection.FakeClipboard
 import androidx.compose.foundation.text.input.internal.setComposingRegion
 import androidx.compose.foundation.text.selection.fetchTextLayoutResult
 import androidx.compose.foundation.verticalScroll
@@ -58,14 +63,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.InterceptPlatformTextInput
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
@@ -77,6 +84,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasPerformImeAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
@@ -107,12 +115,15 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.text.toSpanned
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.filters.SdkSuppress
 import com.google.common.truth.Truth.assertThat
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -1066,33 +1077,36 @@ internal class BasicTextFieldTest {
 
     // Regression test for b/311834126
     @Test
-    fun whenPastingTextThatIncreasesEndOffset_noCrashAndCursorAtEndOfPastedText() {
+    fun whenPastingTextThatIncreasesEndOffset_noCrashAndCursorAtEndOfPastedText() = runTest {
         val longText = "Text".repeat(4)
         val shortText = "Text".repeat(2)
 
         lateinit var tfs: TextFieldState
-        val clipboardManager =
-            object : ClipboardManager {
+        val clipboard =
+            object : Clipboard {
                 var contents: AnnotatedString? = null
 
-                override fun setText(annotatedString: AnnotatedString) {
-                    contents = annotatedString
+                override suspend fun getClipEntry(): ClipEntry? {
+                    return contents?.toClipEntry()
                 }
 
-                override fun getText(): AnnotatedString? {
-                    return contents
+                override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+                    contents = clipEntry?.readAnnotatedString()
                 }
+
+                override val nativeClipboard: NativeClipboard
+                    get() = error("FakeClipboard doesn't have a backing NativeClipboard")
             }
         inputMethodInterceptor.setTextFieldTestContent {
             tfs = rememberTextFieldState(shortText)
-            CompositionLocalProvider(LocalClipboardManager provides clipboardManager) {
+            CompositionLocalProvider(LocalClipboard provides clipboard) {
                 BasicTextField(
                     state = tfs,
                     modifier = Modifier.testTag(Tag),
                 )
             }
         }
-        clipboardManager.setText(AnnotatedString(longText))
+        clipboard.setClipEntry(AnnotatedString(longText).toClipEntry())
         rule.waitForIdle()
 
         val node = rule.onNodeWithTag(Tag)
@@ -1127,11 +1141,11 @@ internal class BasicTextFieldTest {
     }
 
     @Test
-    fun cut_contextMenuAction_cutsIntoClipboard() {
-        val clipboardManager = FakeClipboardManager("World")
+    fun cut_contextMenuAction_cutsIntoClipboard() = runTest {
+        val clipboard = FakeClipboard("World")
         val state = TextFieldState("Hello", initialSelection = TextRange(0, 2))
         inputMethodInterceptor.setTextFieldTestContent {
-            CompositionLocalProvider(LocalClipboardManager provides clipboardManager) {
+            CompositionLocalProvider(LocalClipboard provides clipboard) {
                 BasicTextField(state = state, modifier = Modifier.testTag(Tag))
             }
         }
@@ -1140,18 +1154,17 @@ internal class BasicTextFieldTest {
 
         inputMethodInterceptor.withInputConnection { performContextMenuAction(android.R.id.cut) }
 
-        rule.runOnIdle {
-            assertThat(clipboardManager.getText()?.text).isEqualTo("He")
-            assertThat(state.text.toString()).isEqualTo("llo")
-        }
+        rule.waitForIdle()
+        assertThat(clipboard.getClipEntry()?.readText()).isEqualTo("He")
+        assertThat(state.text.toString()).isEqualTo("llo")
     }
 
     @Test
-    fun copy_contextMenuAction_copiesIntoClipboard() {
-        val clipboardManager = FakeClipboardManager("World")
+    fun copy_contextMenuAction_copiesIntoClipboard() = runTest {
+        val clipboard = FakeClipboard("World")
         val state = TextFieldState("Hello", initialSelection = TextRange(0, 2))
         inputMethodInterceptor.setTextFieldTestContent {
-            CompositionLocalProvider(LocalClipboardManager provides clipboardManager) {
+            CompositionLocalProvider(LocalClipboard provides clipboard) {
                 BasicTextField(state = state, modifier = Modifier.testTag(Tag))
             }
         }
@@ -1160,15 +1173,16 @@ internal class BasicTextFieldTest {
 
         inputMethodInterceptor.withInputConnection { performContextMenuAction(android.R.id.copy) }
 
-        rule.runOnIdle { assertThat(clipboardManager.getText()?.text).isEqualTo("He") }
+        rule.waitForIdle()
+        assertThat(clipboard.getClipEntry()?.readText()).isEqualTo("He")
     }
 
     @Test
     fun paste_contextMenuAction_pastesFromClipboard() {
-        val clipboardManager = FakeClipboardManager("World")
+        val clipboard = FakeClipboard("World")
         val state = TextFieldState("Hello", initialSelection = TextRange(0, 4))
         inputMethodInterceptor.setTextFieldTestContent {
-            CompositionLocalProvider(LocalClipboardManager provides clipboardManager) {
+            CompositionLocalProvider(LocalClipboard provides clipboard) {
                 BasicTextField(state = state, modifier = Modifier.testTag(Tag))
             }
         }
@@ -1362,7 +1376,7 @@ internal class BasicTextFieldTest {
     fun composingRegion_changesInvalidateLayout() {
         val state = TextFieldState("Hello, World")
         var textLayoutProvider: (() -> TextLayoutResult?)? by mutableStateOf(null)
-        state.editAsUser(inputTransformation = null) { setComposingRegion(0, 5) }
+        state.editAsUser(inputTransformation = null) { setComposition(0, 5) }
 
         inputMethodInterceptor.setTextFieldTestContent {
             BasicTextField(
@@ -1558,6 +1572,40 @@ internal class BasicTextFieldTest {
         inputMethodInterceptor.assertNoSessionActive()
         // InputMethodManager should not have received a showSoftInput() call
         rule.runOnIdle { imm.expectNoMoreCalls() }
+    }
+
+    @Test
+    fun outputTransformation_doesNotLoseComposingAnnotations() {
+        val textFieldState = TextFieldState()
+        var textLayoutProvider: (() -> TextLayoutResult?)? = null
+        inputMethodInterceptor.setTextFieldTestContent {
+            BasicTextField(
+                textFieldState,
+                onTextLayout = { textLayoutProvider = it },
+                outputTransformation = { append(" world") }
+            )
+        }
+
+        rule.onNode(hasPerformImeAction()).requestFocus()
+
+        val spanned =
+            SpannableStringBuilder()
+                .append("Hello", BackgroundColorSpan(android.graphics.Color.RED), 0)
+                .toSpanned()
+
+        inputMethodInterceptor.withInputConnection { setComposingText(spanned, 1) }
+
+        rule.runOnIdle {
+            val textLayoutResult = textLayoutProvider?.invoke()
+            assertNotNull(textLayoutResult)
+            val annotatedString = textLayoutResult.layoutInput.text
+            val spanStyles = annotatedString.spanStyles
+            assertThat(annotatedString.toString()).isEqualTo("Hello world")
+            assertThat(spanStyles.size).isEqualTo(1)
+            assertThat(spanStyles.first().start).isEqualTo(0)
+            assertThat(spanStyles.first().end).isEqualTo(5)
+            assertThat(spanStyles.first().item.background).isEqualTo(Color.Red)
+        }
     }
 
     private fun requestFocus(tag: String) = rule.onNodeWithTag(tag).requestFocus()

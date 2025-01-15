@@ -29,6 +29,7 @@ import androidx.camera.camera2.pipe.core.Log
 import androidx.camera.camera2.pipe.integration.adapter.CameraControlAdapter
 import androidx.camera.camera2.pipe.integration.adapter.CameraInfoAdapter
 import androidx.camera.camera2.pipe.integration.adapter.CameraInternalAdapter
+import androidx.camera.camera2.pipe.integration.adapter.EncoderProfilesProviderAdapter
 import androidx.camera.camera2.pipe.integration.adapter.ZslControl
 import androidx.camera.camera2.pipe.integration.adapter.ZslControlImpl
 import androidx.camera.camera2.pipe.integration.adapter.ZslControlNoOpImpl
@@ -47,6 +48,7 @@ import androidx.camera.camera2.pipe.integration.impl.State3AControl
 import androidx.camera.camera2.pipe.integration.impl.StillCaptureRequestControl
 import androidx.camera.camera2.pipe.integration.impl.TorchControl
 import androidx.camera.camera2.pipe.integration.impl.UseCaseThreads
+import androidx.camera.camera2.pipe.integration.impl.VideoUsageControl
 import androidx.camera.camera2.pipe.integration.impl.ZoomControl
 import androidx.camera.camera2.pipe.integration.interop.Camera2CameraControl
 import androidx.camera.camera2.pipe.integration.interop.ExperimentalCamera2Interop
@@ -54,6 +56,7 @@ import androidx.camera.core.impl.CameraControlInternal
 import androidx.camera.core.impl.CameraInfoInternal
 import androidx.camera.core.impl.CameraInternal
 import androidx.camera.core.impl.CameraThreadConfig
+import androidx.camera.core.impl.EncoderProfilesProvider
 import androidx.camera.core.impl.Quirks
 import dagger.Binds
 import dagger.Module
@@ -81,6 +84,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
             State3AControl.Bindings::class,
             StillCaptureRequestControl.Bindings::class,
             TorchControl.Bindings::class,
+            VideoUsageControl.Bindings::class,
             ZoomCompat.Bindings::class,
             ZoomControl.Bindings::class,
         ],
@@ -160,6 +164,15 @@ public abstract class CameraModule {
             } else {
                 return ZslControlNoOpImpl()
             }
+        }
+
+        @CameraScope
+        @Provides
+        public fun provideEncoderProfilesProvider(
+            @Named("CameraId") cameraIdString: String,
+            cameraQuirks: CameraQuirks
+        ): EncoderProfilesProvider {
+            return EncoderProfilesProviderAdapter(cameraIdString, cameraQuirks.quirks)
         }
     }
 

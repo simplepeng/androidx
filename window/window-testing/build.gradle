@@ -21,8 +21,9 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("AndroidXPlugin")
@@ -31,10 +32,11 @@ plugins {
 }
 
 android {
-    namespace "androidx.window.testing"
+    namespace = "androidx.window.testing"
 }
 
 dependencies {
+    api(libs.jspecify)
     api(libs.kotlinStdlib)
     api(project(":window:window"))
     api(libs.junit)
@@ -64,4 +66,5 @@ androidx {
     inceptionYear = "2021"
     description = "WindowManager Test Library"
     legacyDisableKotlinStrictApiMode = true
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }

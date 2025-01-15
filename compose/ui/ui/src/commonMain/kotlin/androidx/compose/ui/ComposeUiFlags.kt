@@ -63,4 +63,35 @@ object ComposeUiFlags {
      * layout phases, it is possible that the addition of this tracking is the culprit.
      */
     @Suppress("MutableBareField") @JvmField var isRectTrackingEnabled: Boolean = true
+
+    /**
+     * Selecting flag to enable the change new onPostFling nested scroll behavior for ongoing
+     * flings. If a nested scroll node is removed from the tree before sending the onPostFling
+     * callback, we will hold on to the next node in the tree so we have a handle to send the
+     * information after the fling finish/is cancelled.
+     */
+    @Suppress("MutableBareField")
+    @JvmField
+    var NewNestedScrollFlingDispatchingEnabled: Boolean = true
+
+    /**
+     * With this flag on, the new semantic version of Autofill will be enabled. Prior to the
+     * semantics refactoring, this will introduce significant overhead, but can be used to test out
+     * the new Autofill APIs and features introduced.
+     */
+    @Suppress("MutableBareField") @JvmField var isSemanticAutofillEnabled: Boolean = false
+
+    /**
+     * This enables fixes for View focus. The changes are large enough to require a flag to allow
+     * disabling them.
+     */
+    @Suppress("MutableBareField") @JvmField var isViewFocusFixEnabled: Boolean = true
+
+    /**
+     * With this flag on, the new focus state management implementation is enabled. The new
+     * implementation removes the focus state previously stored in each FocusTargetNode and instead
+     * keeps track of the current active focus node centrally in FocusOwnerImpl. This change reduces
+     * the cost of initializing the focus system.
+     */
+    @Suppress("MutableBareField") @JvmField var isTrackFocusEnabled: Boolean = true
 }

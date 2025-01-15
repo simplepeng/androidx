@@ -17,7 +17,6 @@
 package androidx.health.connect.client.impl
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ext.SdkExtensions
 import androidx.health.connect.client.HealthConnectClient
@@ -25,9 +24,10 @@ import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.changes.DeletionChange
 import androidx.health.connect.client.changes.UpsertionChange
 import androidx.health.connect.client.feature.ExperimentalFeatureAvailabilityApi
-import androidx.health.connect.client.impl.converters.datatype.RECORDS_CLASS_NAME_MAP
 import androidx.health.connect.client.impl.platform.aggregate.AGGREGATE_METRICS_ADDED_IN_SDK_EXT_10
-import androidx.health.connect.client.permission.HealthPermission.Companion.PERMISSION_PREFIX
+import androidx.health.connect.client.impl.platform.records.SDK_TO_PLATFORM_RECORD_CLASS
+import androidx.health.connect.client.impl.platform.records.SDK_TO_PLATFORM_RECORD_CLASS_EXT_13
+import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.readRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.HeartRateRecord
@@ -84,21 +84,31 @@ class HealthConnectClientUpsideDownImplTest {
             LocalDate.now().minusDays(5).atStartOfDay().toInstant(ZoneOffset.UTC)
         private val ZONE_OFFSET = ZoneOffset.UTC
         private val ZONE_ID = ZoneId.of(ZONE_OFFSET.id)
+
+        fun getAllRecordPermissions(): Array<String> {
+            val permissions: HashSet<String> = HashSet()
+
+            for (recordType in SDK_TO_PLATFORM_RECORD_CLASS.keys) {
+                permissions.add(HealthPermission.getReadPermission(recordType))
+                permissions.add(HealthPermission.getWritePermission(recordType))
+            }
+
+            if (SdkExtensions.getExtensionVersion(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) >= 13) {
+                for (recordType in SDK_TO_PLATFORM_RECORD_CLASS_EXT_13.keys) {
+                    permissions.add(HealthPermission.getReadPermission(recordType))
+                    permissions.add(HealthPermission.getWritePermission(recordType))
+                }
+            }
+
+            return permissions.toTypedArray()
+        }
     }
 
     private val context: Context = ApplicationProvider.getApplicationContext()
-    private val allHealthPermissions =
-        context.packageManager
-            .getPackageInfo(
-                context.packageName,
-                PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong())
-            )
-            .requestedPermissions!!
-            .filter { it.startsWith(PERMISSION_PREFIX) }
-            .toTypedArray()
 
     @get:Rule
-    val grantPermissionRule: GrantPermissionRule = GrantPermissionRule.grant(*allHealthPermissions)
+    val grantPermissionRule: GrantPermissionRule =
+        GrantPermissionRule.grant(*getAllRecordPermissions())
 
     private lateinit var healthConnectClient: HealthConnectClient
 
@@ -109,8 +119,14 @@ class HealthConnectClientUpsideDownImplTest {
 
     @After
     fun tearDown() = runTest {
-        for (recordType in RECORDS_CLASS_NAME_MAP.keys) {
+        for (recordType in SDK_TO_PLATFORM_RECORD_CLASS.keys) {
             healthConnectClient.deleteRecords(recordType, TimeRangeFilter.none())
+        }
+
+        if (SdkExtensions.getExtensionVersion(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) >= 13) {
+            for (recordType in SDK_TO_PLATFORM_RECORD_CLASS_EXT_13.keys) {
+                healthConnectClient.deleteRecords(recordType, TimeRangeFilter.none())
+            }
         }
     }
 
@@ -121,7 +137,8 @@ class HealthConnectClientUpsideDownImplTest {
         for (feature in
             setOf(
                 HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND,
-                HealthConnectFeatures.FEATURE_SKIN_TEMPERATURE
+                HealthConnectFeatures.FEATURE_SKIN_TEMPERATURE,
+                HealthConnectFeatures.FEATURE_PLANNED_EXERCISE
             )) {
             assertThat(healthConnectClient.features.getFeatureStatus(feature))
                 .isEqualTo(HealthConnectFeatures.FEATURE_STATUS_AVAILABLE)
@@ -135,7 +152,7 @@ class HealthConnectClientUpsideDownImplTest {
         val features =
             listOf(
                 HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND,
-                HealthConnectFeatures.FEATURE_HEALTH_DATA_HISTORIC_READ,
+                HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY,
                 HealthConnectFeatures.FEATURE_SKIN_TEMPERATURE,
                 HealthConnectFeatures.FEATURE_PLANNED_EXERCISE
             )
@@ -836,7 +853,7 @@ class HealthConnectClientUpsideDownImplTest {
     @Test
     fun getGrantedPermissions() = runTest {
         assertThat(healthConnectClient.permissionController.getGrantedPermissions())
-            .containsExactlyElementsIn(allHealthPermissions)
+            .containsExactlyElementsIn(getAllRecordPermissions())
     }
 
     private fun <A, E> assertEquals(vararg assertions: Pair<A, E>) {

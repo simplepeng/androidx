@@ -36,7 +36,6 @@ import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.TextToggleButton
 import androidx.wear.compose.material3.TextToggleButtonDefaults
 import androidx.wear.compose.material3.samples.LargeTextToggleButtonSample
-import androidx.wear.compose.material3.samples.TextToggleButtonSample
 import androidx.wear.compose.material3.touchTargetAwareSize
 
 @Composable
@@ -45,7 +44,7 @@ fun TextToggleButtonDemo() {
         item { ListHeader { Text("Text Toggle Button", textAlign = TextAlign.Center) } }
         item {
             Row {
-                TextToggleButtonSample() // Enabled and checked
+                TextToggleButtonsDemo(enabled = true, initialChecked = true)
                 Spacer(modifier = Modifier.width(5.dp))
                 TextToggleButtonsDemo(enabled = true, initialChecked = false)
             }
@@ -57,9 +56,7 @@ fun TextToggleButtonDemo() {
                 TextToggleButtonsDemo(enabled = false, initialChecked = false)
             }
         }
-        item {
-            ListHeader { Text("Text Toggle Button Shape morphing", textAlign = TextAlign.Center) }
-        }
+        item { ListHeader { Text("Shape morphing", textAlign = TextAlign.Center) } }
         item {
             Row {
                 AnimatedTextToggleButtonsDemo(enabled = true, initialChecked = true)
@@ -74,11 +71,7 @@ fun TextToggleButtonDemo() {
                 AnimatedTextToggleButtonsDemo(enabled = false, initialChecked = false)
             }
         }
-        item {
-            ListHeader {
-                Text("Text Toggle Button Shape morphing variant", textAlign = TextAlign.Center)
-            }
-        }
+        item { ListHeader { Text("Shape morphing variant", textAlign = TextAlign.Center) } }
         item {
             Row {
                 VariantAnimatedTextToggleButtonsDemo(enabled = true, initialChecked = true)
@@ -225,14 +218,12 @@ private fun AnimatedTextToggleButtonsDemo(
     textStyle: TextStyle = TextToggleButtonDefaults.defaultButtonTextStyle
 ) {
     val checked = remember { mutableStateOf(initialChecked) }
-    val interactionSource = remember { MutableInteractionSource() }
     TextToggleButton(
         checked = checked.value,
         enabled = enabled,
         modifier = Modifier.touchTargetAwareSize(size),
         onCheckedChange = { checked.value = !checked.value },
-        shape = TextToggleButtonDefaults.animatedShape(interactionSource),
-        interactionSource = interactionSource,
+        shapes = TextToggleButtonDefaults.animatedShapes(),
     ) {
         Text(text = if (checked.value) "On" else "Off", style = textStyle)
     }
@@ -252,11 +243,7 @@ private fun VariantAnimatedTextToggleButtonsDemo(
         enabled = enabled,
         modifier = Modifier.touchTargetAwareSize(size),
         onCheckedChange = { checked.value = !checked.value },
-        shape =
-            TextToggleButtonDefaults.variantAnimatedShape(
-                interactionSource,
-                checked = checked.value
-            ),
+        shapes = TextToggleButtonDefaults.variantAnimatedShapes(),
         interactionSource = interactionSource,
     ) {
         Text(text = if (checked.value) "On" else "Off", style = textStyle)

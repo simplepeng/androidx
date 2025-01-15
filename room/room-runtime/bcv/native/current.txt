@@ -34,6 +34,9 @@ abstract interface androidx.room/Transactor : androidx.room/PooledConnection { /
         enum entry EXCLUSIVE // androidx.room/Transactor.SQLiteTransactionType.EXCLUSIVE|null[0]
         enum entry IMMEDIATE // androidx.room/Transactor.SQLiteTransactionType.IMMEDIATE|null[0]
 
+        final val entries // androidx.room/Transactor.SQLiteTransactionType.entries|#static{}entries[0]
+            final fun <get-entries>(): kotlin.enums/EnumEntries<androidx.room/Transactor.SQLiteTransactionType> // androidx.room/Transactor.SQLiteTransactionType.entries.<get-entries>|<get-entries>#static(){}[0]
+
         final fun valueOf(kotlin/String): androidx.room/Transactor.SQLiteTransactionType // androidx.room/Transactor.SQLiteTransactionType.valueOf|valueOf#static(kotlin.String){}[0]
         final fun values(): kotlin/Array<androidx.room/Transactor.SQLiteTransactionType> // androidx.room/Transactor.SQLiteTransactionType.values|values#static(){}[0]
     }
@@ -126,6 +129,9 @@ abstract class androidx.room/RoomDatabase { // androidx.room/RoomDatabase|null[0
         enum entry TRUNCATE // androidx.room/RoomDatabase.JournalMode.TRUNCATE|null[0]
         enum entry WRITE_AHEAD_LOGGING // androidx.room/RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING|null[0]
 
+        final val entries // androidx.room/RoomDatabase.JournalMode.entries|#static{}entries[0]
+            final fun <get-entries>(): kotlin.enums/EnumEntries<androidx.room/RoomDatabase.JournalMode> // androidx.room/RoomDatabase.JournalMode.entries.<get-entries>|<get-entries>#static(){}[0]
+
         final fun valueOf(kotlin/String): androidx.room/RoomDatabase.JournalMode // androidx.room/RoomDatabase.JournalMode.valueOf|valueOf#static(kotlin.String){}[0]
         final fun values(): kotlin/Array<androidx.room/RoomDatabase.JournalMode> // androidx.room/RoomDatabase.JournalMode.values|values#static(){}[0]
     }
@@ -214,6 +220,16 @@ final class <#A: kotlin/Any?> androidx.room/EntityUpsertAdapter { // androidx.ro
     final fun upsertAndReturnIdsList(androidx.sqlite/SQLiteConnection, kotlin/Array<out #A?>?): kotlin.collections/List<kotlin/Long> // androidx.room/EntityUpsertAdapter.upsertAndReturnIdsList|upsertAndReturnIdsList(androidx.sqlite.SQLiteConnection;kotlin.Array<out|1:0?>?){}[0]
 
     final object Companion // androidx.room/EntityUpsertAdapter.Companion|null[0]
+}
+
+final class androidx.room.util/ByteArrayWrapper { // androidx.room.util/ByteArrayWrapper|null[0]
+    constructor <init>(kotlin/ByteArray) // androidx.room.util/ByteArrayWrapper.<init>|<init>(kotlin.ByteArray){}[0]
+
+    final val array // androidx.room.util/ByteArrayWrapper.array|{}array[0]
+        final fun <get-array>(): kotlin/ByteArray // androidx.room.util/ByteArrayWrapper.array.<get-array>|<get-array>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // androidx.room.util/ByteArrayWrapper.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // androidx.room.util/ByteArrayWrapper.hashCode|hashCode(){}[0]
 }
 
 final class androidx.room.util/FtsTableInfo { // androidx.room.util/FtsTableInfo|null[0]

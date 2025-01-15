@@ -32,6 +32,7 @@ plugins {
 }
 
 dependencies {
+    api(libs.jspecify)
     api(libs.kotlinStdlib)
     // Add dependencies here
     api("androidx.activity:activity:1.2.0")
@@ -63,11 +64,12 @@ dependencies {
     androidTestImplementation(libs.kotlinTest)
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.truth)
+    testImplementation(libs.guavaTestlib)
 }
 
 android {
     defaultConfig {
-        minSdkVersion 26
+        minSdk = 26
     }
     buildFeatures {
         aidl = true
@@ -76,7 +78,7 @@ android {
         consumerProguardFiles "proguard-rules.pro"
     }
     testOptions.unitTests.includeAndroidResources = true
-    namespace "androidx.health.connect.client"
+    namespace = "androidx.health.connect.client"
     compileSdk = 35
 }
 

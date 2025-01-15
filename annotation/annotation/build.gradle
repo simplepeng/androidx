@@ -17,15 +17,15 @@ plugins {
 
 androidXMultiplatform {
     androidNative()
+    ios()
+    js()
     jvm()
+    linux()
     mac()
     mingwX64()
-    linux()
-    ios()
-    watchosDeviceArm64()
-    watchos()
     tvos()
     wasmJs()
+    watchos()
 
     defaultPlatform(PlatformIdentifier.JVM)
 
@@ -42,9 +42,10 @@ androidXMultiplatform {
 
         wasmJsMain {
             dependsOn(nonJvmMain)
-            dependencies {
-                implementation(libs.kotlinStdlibJs)
-            }
+        }
+
+        jsMain {
+            dependsOn(nonJvmMain)
         }
 
         targets.configureEach { target ->
@@ -89,7 +90,7 @@ androidx {
     name = "Annotation"
     type = LibraryType.PUBLISHED_LIBRARY
     mavenVersion = LibraryVersions.ANNOTATION
-    kotlinTarget = KotlinTarget.KOTLIN_1_7
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
     inceptionYear = "2013"
     description = "Provides source annotations for tooling and readability."
 }

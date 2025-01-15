@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentDataType
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
@@ -81,7 +82,8 @@ import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalAutofillManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalFontFamilyResolver
@@ -90,6 +92,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.SoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDataType
 import androidx.compose.ui.semantics.copyText
 import androidx.compose.ui.semantics.cutText
 import androidx.compose.ui.semantics.disabled
@@ -97,6 +100,7 @@ import androidx.compose.ui.semantics.editableText
 import androidx.compose.ui.semantics.getTextLayoutResult
 import androidx.compose.ui.semantics.insertTextAtCursor
 import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.onAutofillText
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onImeAction
 import androidx.compose.ui.semantics.onLongClick
@@ -215,8 +219,10 @@ internal fun CoreTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     enabled: Boolean = true,
     readOnly: Boolean = false,
+    @Suppress("ComposableLambdaParameterPosition")
     decorationBox: @Composable (innerTextField: @Composable () -> Unit) -> Unit =
-        @Composable { innerTextField -> innerTextField() }
+        @Composable { innerTextField -> innerTextField() },
+    textScrollerPosition: TextFieldScrollerPosition? = null,
 ) {
     val focusRequester = remember { FocusRequester() }
     val legacyTextInputServiceAdapter = remember { createLegacyPlatformTextInputServiceAdapter() }
@@ -236,9 +242,18 @@ internal fun CoreTextField(
     val singleLine = maxLines == 1 && !softWrap && imeOptions.singleLine
     val orientation = if (singleLine) Orientation.Horizontal else Orientation.Vertical
     val scrollerPosition =
-        rememberSaveable(orientation, saver = TextFieldScrollerPosition.Saver) {
-            TextFieldScrollerPosition(orientation)
-        }
+        textScrollerPosition
+            ?: rememberSaveable(orientation, saver = TextFieldScrollerPosition.Saver) {
+                TextFieldScrollerPosition(orientation)
+            }
+    if (scrollerPosition.orientation != orientation) {
+        throw IllegalArgumentException(
+            "Mismatching scroller orientation; " +
+                (if (orientation == Orientation.Vertical)
+                    "only single-line, non-wrap text fields can scroll horizontally"
+                else "single-line, non-wrap text fields can only scroll horizontally")
+        )
+    }
 
     // State
     val transformedText =
@@ -288,21 +303,23 @@ internal fun CoreTextField(
     val undoManager = remember { UndoManager() }
     undoManager.snapshotIfNeeded(value)
 
+    val coroutineScope = rememberCoroutineScope()
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+
     val manager = remember { TextFieldSelectionManager(undoManager) }
     manager.offsetMapping = offsetMapping
     manager.visualTransformation = visualTransformation
     manager.onValueChange = state.onValueChange
     manager.state = state
     manager.value = value
-    manager.clipboardManager = LocalClipboardManager.current
+    manager.clipboard = LocalClipboard.current
+    manager.coroutineScope = coroutineScope
     manager.textToolbar = LocalTextToolbar.current
     manager.hapticFeedBack = LocalHapticFeedback.current
+    manager.autofillManager = LocalAutofillManager.current
     manager.focusRequester = focusRequester
     manager.editable = !readOnly
     manager.enabled = enabled
-
-    val coroutineScope = rememberCoroutineScope()
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
     // Focus
     val focusModifier =
@@ -461,6 +478,17 @@ internal fun CoreTextField(
             // focused semantics are handled by Modifier.focusable()
             this.editableText = transformedText.text
             this.textSelectionRange = value.selection
+
+            // The developer will set `contentType`. CTF populates the other autofill-related
+            // semantics. And since we're in a TextField, set the `contentDataType` to be "Text".
+            this.contentDataType = ContentDataType.Text
+            onAutofillText { text ->
+                state.justAutofilled = true
+                state.autofillHighlightOn = true
+                handleTextUpdateFromSemantics(state, text.text, readOnly, enabled)
+                true
+            }
+
             if (!enabled) this.disabled()
             if (isPassword) this.password()
             val editable = enabled && !readOnly
@@ -475,23 +503,7 @@ internal fun CoreTextField(
             }
             if (editable) {
                 setText { text ->
-                    // If the action is performed while in an active text editing session, treat
-                    // this like an IME command and update the text by going through the buffer.
-                    // This keeps the buffer state consistent if other IME commands are performed
-                    // before the next recomposition, and is used for the testing code path.
-                    state.inputSession?.let { session ->
-                        TextFieldDelegate.onEditCommand(
-                            ops = listOf(DeleteAllCommand(), CommitTextCommand(text, 1)),
-                            editProcessor = state.processor,
-                            state.onValueChange,
-                            session
-                        )
-                    }
-                        ?: run {
-                            state.onValueChange(
-                                TextFieldValue(text.text, TextRange(text.text.length))
-                            )
-                        }
+                    handleTextUpdateFromSemantics(state, text.text, readOnly, enabled)
                     true
                 }
 
@@ -641,20 +653,17 @@ internal fun CoreTextField(
             imeAction = imeOptions.imeAction,
         )
 
+    val handwritingEnabled =
+        imeOptions.keyboardType != KeyboardType.Password &&
+            imeOptions.keyboardType != KeyboardType.NumberPassword
     val stylusHandwritingModifier =
-        Modifier.stylusHandwriting(writeable) {
-            if (!state.hasFocus) {
-                focusRequester.requestFocus()
-            }
+        Modifier.stylusHandwriting(writeable, handwritingEnabled) {
             // If this is a password field, we can't trigger handwriting.
             // The expected behavior is 1) request focus 2) show software keyboard.
             // Note: TextField will show software keyboard automatically when it
             // gain focus. 3) show a toast message telling that handwriting is not
             // supported for password fields. TODO(b/335294152)
-            if (
-                imeOptions.keyboardType != KeyboardType.Password &&
-                    imeOptions.keyboardType != KeyboardType.NumberPassword
-            ) {
+            if (handwritingEnabled) {
                 // TextInputService is calling LegacyTextInputServiceAdapter under the
                 // hood.  And because it's a public API, startStylusHandwriting is added
                 // to legacyTextInputServiceAdapter instead.
@@ -663,13 +672,21 @@ internal fun CoreTextField(
                 // internally by the LegacyTextInputServiceAdapter.
                 legacyTextInputServiceAdapter.startStylusHandwriting()
             }
-            true
+        }
+
+    val autofillHighlightColor = LocalAutofillHighlightColor.current
+    val drawDecorationModifier =
+        Modifier.drawBehind {
+            if (state.autofillHighlightOn || state.justAutofilled) {
+                drawRect(color = autofillHighlightColor)
+            }
         }
 
     // Modifiers that should be applied to the outer text field container. Usually those include
     // gesture and semantics modifiers.
     val decorationBoxModifier =
         modifier
+            .then(drawDecorationModifier)
             .legacyTextInputAdapter(legacyTextInputServiceAdapter, state, manager)
             .then(stylusHandwritingModifier)
             .then(focusModifier)
@@ -867,6 +884,30 @@ private fun Modifier.previewKeyEventToDeselectOnBack(
     }
 }
 
+/**
+ * In an active input session, semantics updates are handled just as user updates coming from the
+ * IME. Otherwise the updates are directly applied on the current state.
+ */
+private fun handleTextUpdateFromSemantics(
+    state: LegacyTextFieldState,
+    text: String,
+    readOnly: Boolean,
+    enabled: Boolean
+) {
+    if (readOnly || !enabled) return
+
+    // If the action is performed while in an active text editing session, treat this
+    // like an IME command and update the text by going through the buffer.
+    state.inputSession?.let { session ->
+        TextFieldDelegate.onEditCommand(
+            ops = listOf(DeleteAllCommand(), CommitTextCommand(text, 1)),
+            editProcessor = state.processor,
+            state.onValueChange,
+            session
+        )
+    } ?: run { state.onValueChange(TextFieldValue(text, TextRange(text.length))) }
+}
+
 internal class LegacyTextFieldState(
     var textDelegate: TextDelegate,
     val recomposeScope: RecomposeScope,
@@ -986,6 +1027,10 @@ internal class LegacyTextFieldState(
     private val keyboardActionRunner: KeyboardActionRunner =
         KeyboardActionRunner(keyboardController)
 
+    /** Autofill related values we need to save between */
+    var autofillHighlightOn by mutableStateOf(false)
+    var justAutofilled by mutableStateOf(false)
+
     /**
      * DO NOT USE, use [onValueChange] instead. This is original callback provided to the TextField.
      * In order the CoreTextField to work, the recompose.invalidate() has to be called when we call
@@ -997,6 +1042,13 @@ internal class LegacyTextFieldState(
         if (it.text != untransformedText?.text) {
             // Text has been changed, enter the HandleState.None and hide the cursor handle.
             handleState = HandleState.None
+
+            // Autofill logic
+            if (justAutofilled) {
+                justAutofilled = false
+            } else {
+                autofillHighlightOn = false
+            }
         }
         selectionPreviewHighlightRange = TextRange.Zero
         deletionPreviewHighlightRange = TextRange.Zero

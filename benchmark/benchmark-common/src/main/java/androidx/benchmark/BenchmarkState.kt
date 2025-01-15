@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit
  *
  * Query a state object with [androidx.benchmark.junit4.BenchmarkRule.getState], and use it to
  * measure a block of Java with [BenchmarkState.keepRunning]:
- * ```
+ * ```java
  * @Rule
  * public BenchmarkRule benchmarkRule = new BenchmarkRule();
  *
@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit
  * }
  * ```
  *
- * @see androidx.benchmark.junit4.BenchmarkRule#getState()
+ * @see androidx.benchmark.junit4.BenchmarkRule.getState()
  */
 class BenchmarkState internal constructor(phaseConfig: MicrobenchmarkPhase.Config) {
 
@@ -318,6 +318,11 @@ class BenchmarkState internal constructor(phaseConfig: MicrobenchmarkPhase.Confi
             }
             profilerResult = phaseProfilerResult
         }
+
+        // Warm up the metrics data structure to reduce the impact on the first measurement.
+        currentMetrics.captureStart()
+        currentMetrics.captureStop()
+        currentMetrics.captureInit()
 
         currentMetrics.captureStart()
         return true

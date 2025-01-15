@@ -16,8 +16,6 @@
 
 package androidx.wear.compose.material3
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,8 +31,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,12 +59,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.wear.compose.material3.ButtonDefaults.buttonColors
+import androidx.wear.compose.material3.internal.Icons
 import androidx.wear.compose.material3.internal.Plurals
 import androidx.wear.compose.material3.internal.Strings
 import androidx.wear.compose.material3.internal.getPlurals
 import androidx.wear.compose.material3.internal.getString
 import androidx.wear.compose.material3.tokens.TimePickerTokens
 import androidx.wear.compose.materialcore.is24HourFormat
+import androidx.wear.compose.materialcore.isLargeScreen
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoField
@@ -97,9 +95,8 @@ import java.time.temporal.ChronoField
  *   whether to show seconds or AM/PM selector as well as hours and minutes.
  * @param colors [TimePickerColors] be applied to the TimePicker.
  */
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun TimePicker(
+public fun TimePicker(
     initialTime: LocalTime,
     onTimePicked: (LocalTime) -> Unit,
     modifier: Modifier = Modifier,
@@ -247,7 +244,7 @@ fun TimePicker(
                                     indexToText = { "%02d".format(if (is12hour) it + 1 else it) },
                                     optionHeight = styles.optionHeight,
                                 ),
-                            spacing = styles.optionSpacing
+                            verticalSpacing = styles.optionSpacing
                         )
 
                         // Minutes Picker
@@ -273,7 +270,7 @@ fun TimePicker(
                                     unselectedContentColor = colors.unselectedPickerContentColor,
                                     optionHeight = styles.optionHeight,
                                 ),
-                            spacing = styles.optionSpacing
+                            verticalSpacing = styles.optionSpacing
                         )
 
                         // Seconds or Period picker
@@ -297,7 +294,7 @@ fun TimePicker(
                                             colors.unselectedPickerContentColor,
                                         optionHeight = styles.optionHeight,
                                     ),
-                                spacing = styles.optionSpacing
+                                verticalSpacing = styles.optionSpacing
                             )
                         }
                     }
@@ -333,7 +330,7 @@ fun TimePicker(
                         }
                         .focusRequester(focusRequesterConfirmButton)
                         .focusable(),
-                buttonHeight = ButtonDefaults.EdgeButtonHeightSmall,
+                buttonSize = EdgeButtonSize.Small,
                 colors =
                     buttonColors(
                         contentColor = colors.confirmButtonContentColor,
@@ -341,7 +338,7 @@ fun TimePicker(
                     ),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Check,
+                    imageVector = Icons.Check,
                     contentDescription = getString(Strings.PickerConfirmButtonContentDescription),
                     modifier = Modifier.size(24.dp).wrapContentSize(align = Alignment.Center),
                 )
@@ -357,17 +354,17 @@ fun TimePicker(
 /** Specifies the types of columns to display in the TimePicker. */
 @Immutable
 @JvmInline
-value class TimePickerType internal constructor(internal val value: Int) {
-    companion object {
+public value class TimePickerType internal constructor(internal val value: Int) {
+    public companion object {
         /** Displays two columns for hours (24-hour format) and minutes. */
-        val HoursMinutes24H = TimePickerType(0)
+        public val HoursMinutes24H: TimePickerType = TimePickerType(0)
         /** Displays three columns for hours (24-hour format), minutes and seconds. */
-        val HoursMinutesSeconds24H = TimePickerType(1)
+        public val HoursMinutesSeconds24H: TimePickerType = TimePickerType(1)
         /** Displays three columns for hours (12-hour format), minutes and AM/PM label. */
-        val HoursMinutesAmPm12H = TimePickerType(2)
+        public val HoursMinutesAmPm12H: TimePickerType = TimePickerType(2)
     }
 
-    override fun toString() =
+    override fun toString(): String =
         when (this) {
             HoursMinutes24H -> "HoursMinutes24H"
             HoursMinutesSeconds24H -> "HoursMinutesSeconds24H"
@@ -377,10 +374,10 @@ value class TimePickerType internal constructor(internal val value: Int) {
 }
 
 /** Contains the default values used by [TimePicker] */
-object TimePickerDefaults {
+public object TimePickerDefaults {
 
     /** The default [TimePickerType] for [TimePicker] aligns with the current system time format. */
-    val timePickerType: TimePickerType
+    public val timePickerType: TimePickerType
         @Composable
         get() =
             if (is24HourFormat()) {
@@ -390,7 +387,9 @@ object TimePickerDefaults {
             }
 
     /** Creates a [TimePickerColors] for a [TimePicker]. */
-    @Composable fun timePickerColors() = MaterialTheme.colorScheme.defaultTimePickerColors
+    @Composable
+    public fun timePickerColors(): TimePickerColors =
+        MaterialTheme.colorScheme.defaultTimePickerColors
 
     /**
      * Creates a [TimePickerColors] for a [TimePicker].
@@ -403,14 +402,14 @@ object TimePickerDefaults {
      * @param confirmButtonContainerColor The container color of the confirm button.
      */
     @Composable
-    fun timePickerColors(
+    public fun timePickerColors(
         selectedPickerContentColor: Color = Color.Unspecified,
         unselectedPickerContentColor: Color = Color.Unspecified,
         separatorColor: Color = Color.Unspecified,
         pickerLabelColor: Color = Color.Unspecified,
         confirmButtonContentColor: Color = Color.Unspecified,
         confirmButtonContainerColor: Color = Color.Unspecified,
-    ) =
+    ): TimePickerColors =
         MaterialTheme.colorScheme.defaultTimePickerColors.copy(
             selectedPickerContentColor = selectedPickerContentColor,
             unselectedPickerContentColor = unselectedPickerContentColor,
@@ -425,11 +424,11 @@ object TimePickerDefaults {
             return defaultTimePickerColorsCached
                 ?: TimePickerColors(
                         selectedPickerContentColor =
-                            fromToken(TimePickerTokens.SelectedPickerContentColor),
+                            fromToken(TimePickerTokens.SelectedContentColor),
                         unselectedPickerContentColor =
-                            fromToken(TimePickerTokens.UnselectedPickerContentColor),
+                            fromToken(TimePickerTokens.UnselectedContentColor),
                         separatorColor = fromToken(TimePickerTokens.SeparatorColor),
-                        pickerLabelColor = fromToken(TimePickerTokens.PickerLabelColor),
+                        pickerLabelColor = fromToken(TimePickerTokens.LabelColor),
                         confirmButtonContentColor =
                             fromToken(TimePickerTokens.ConfirmButtonContentColor),
                         confirmButtonContainerColor =
@@ -450,22 +449,32 @@ object TimePickerDefaults {
  * @param confirmButtonContainerColor The container color of the confirm button.
  */
 @Immutable
-class TimePickerColors(
-    val selectedPickerContentColor: Color,
-    val unselectedPickerContentColor: Color,
-    val separatorColor: Color,
-    val pickerLabelColor: Color,
-    val confirmButtonContentColor: Color,
-    val confirmButtonContainerColor: Color,
+public class TimePickerColors(
+    public val selectedPickerContentColor: Color,
+    public val unselectedPickerContentColor: Color,
+    public val separatorColor: Color,
+    public val pickerLabelColor: Color,
+    public val confirmButtonContentColor: Color,
+    public val confirmButtonContainerColor: Color,
 ) {
-    internal fun copy(
-        selectedPickerContentColor: Color,
-        unselectedPickerContentColor: Color,
-        separatorColor: Color,
-        pickerLabelColor: Color,
-        confirmButtonContentColor: Color,
-        confirmButtonContainerColor: Color,
-    ) =
+    /**
+     * Returns a copy of this TimePickerColors( optionally overriding some of the values.
+     *
+     * @param selectedPickerContentColor The content color of selected picker.
+     * @param unselectedPickerContentColor The content color of unselected pickers.
+     * @param separatorColor The color of separator between the pickers.
+     * @param pickerLabelColor The color of the picker label.
+     * @param confirmButtonContentColor The content color of the confirm button.
+     * @param confirmButtonContainerColor The container color of the confirm button.
+     */
+    public fun copy(
+        selectedPickerContentColor: Color = this.selectedPickerContentColor,
+        unselectedPickerContentColor: Color = this.unselectedPickerContentColor,
+        separatorColor: Color = this.separatorColor,
+        pickerLabelColor: Color = this.pickerLabelColor,
+        confirmButtonContentColor: Color = this.confirmButtonContentColor,
+        confirmButtonContainerColor: Color = this.confirmButtonContainerColor,
+    ): TimePickerColors =
         TimePickerColors(
             selectedPickerContentColor =
                 selectedPickerContentColor.takeOrElse { this.selectedPickerContentColor },
@@ -510,20 +519,20 @@ private fun getTimePickerStyles(
     timePickerType: TimePickerType,
     optionalThirdPicker: PickerData?
 ): TimePickerStyles {
-    val isLargeScreen = LocalConfiguration.current.screenWidthDp > 225
+    val isLargeScreen = isLargeScreen()
     val labelTextStyle =
         if (isLargeScreen) {
-                TimePickerTokens.PickerLabelLargeTypography
+                TimePickerTokens.LabelLargeTypography
             } else {
-                TimePickerTokens.PickerLabelTypography
+                TimePickerTokens.LabelTypography
             }
             .value
 
     val optionTextStyle =
         if (isLargeScreen || timePickerType == TimePickerType.HoursMinutes24H) {
-                TimePickerTokens.PickerContentLargeTypography
+                TimePickerTokens.ContentLargeTypography
             } else {
-                TimePickerTokens.PickerContentTypography
+                TimePickerTokens.ContentTypography
             }
             .value
             .copy(textAlign = TextAlign.Center)
@@ -584,7 +593,6 @@ private fun getTimePickerStyles(
 }
 
 /* Returns the picker data for the third column (AM/PM or seconds) based on the time picker type. */
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 private fun getOptionalThirdPicker(
     timePickerType: TimePickerType,

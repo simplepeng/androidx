@@ -1076,6 +1076,32 @@ class NavControllerRouteTest {
 
     @UiThreadTest
     @Test
+    fun testNavigateNestedDuplicateDestination() {
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(route = "root", startDestination = "start") {
+                test("start")
+                navigation(route = "second", startDestination = "duplicate") { test("duplicate") }
+                navigation(route = "duplicate", startDestination = "third") { test("third") }
+            }
+        assertThat(navController.currentDestination?.route).isEqualTo("start")
+
+        navController.navigate("second")
+        assertThat(navController.currentBackStack.value.map { it.destination.route })
+            .containsExactly("root", "start", "second", "duplicate")
+
+        navController.navigate("third")
+        assertThat(navController.currentBackStack.value.map { it.destination.route })
+            .containsExactly("root", "start", "second", "duplicate", "duplicate", "third")
+        val duplicateNode =
+            navController.currentBackStack.value
+                .last { it.destination.route == "duplicate" }
+                .destination
+        assertThat(duplicateNode.parent?.route).isEqualTo("root")
+    }
+
+    @UiThreadTest
+    @Test
     fun testNavigateWithObject() {
         val navController = createNavController()
         navController.graph =
@@ -2309,6 +2335,25 @@ class NavControllerRouteTest {
 
     @UiThreadTest
     @Test
+    fun testGetBackStackEntryWithKClassNonReified() {
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(startDestination = "start") {
+                test("start")
+                test<TestClass>()
+            }
+
+        navController.navigate(TEST_CLASS_ROUTE)
+
+        val navigator = navController.navigatorProvider.getNavigator(TestNavigator::class.java)
+        assertThat(navigator.backStack.size).isEqualTo(2)
+
+        val entry = navController.getBackStackEntry(TestClass::class)
+        assertThat(entry.destination.route).isEqualTo(TEST_CLASS_ROUTE)
+    }
+
+    @UiThreadTest
+    @Test
     fun testGetBackStackEntryWithKClassArg() {
         val navController = createNavController()
         navController.graph =
@@ -2804,6 +2849,25 @@ class NavControllerRouteTest {
         assertThat(navigator.backStack.size).isEqualTo(2)
 
         val popped = navController.popBackStack<TestClass>(true)
+        assertThat(popped).isTrue()
+        assertThat(navigator.backStack.size).isEqualTo(1)
+    }
+
+    @UiThreadTest
+    @Test
+    fun testPopBackStackWithKClassNonReified() {
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(startDestination = "start") {
+                test("start")
+                test<TestClass>()
+            }
+        navController.navigate(TestClass())
+
+        val navigator = navController.navigatorProvider.getNavigator(TestNavigator::class.java)
+        assertThat(navigator.backStack.size).isEqualTo(2)
+
+        val popped = navController.popBackStack(TestClass::class, true)
         assertThat(popped).isTrue()
         assertThat(navigator.backStack.size).isEqualTo(1)
     }
@@ -3475,6 +3539,26 @@ class NavControllerRouteTest {
         assertThat(popped).isTrue()
 
         val cleared = navController.clearBackStack<TestClass>()
+        assertThat(cleared).isTrue()
+    }
+
+    @UiThreadTest
+    @Test
+    fun testClearBackStackWithKClassNonReified() {
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(startDestination = "start") {
+                test("start")
+                test<TestClass>()
+            }
+
+        navController.navigate(TEST_CLASS_ROUTE)
+        assertThat(navController.currentBackStack.value.size).isEqualTo(3)
+
+        val popped = navController.popBackStack<TestClass>(true, true)
+        assertThat(popped).isTrue()
+
+        val cleared = navController.clearBackStack(TestClass::class)
         assertThat(cleared).isTrue()
     }
 
@@ -5252,6 +5336,79 @@ class NavControllerRouteTest {
 
     @UiThreadTest
     @Test
+    fun testNavigateWithObjectEnumList() {
+        @Serializable @SerialName("test") class TestClass(val arg: List<TestEnum>)
+
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(
+                startDestination = TestClass(listOf(TestEnum.ONE, TestEnum.TWO))
+            ) {
+                test<TestClass>()
+            }
+        assertThat(navController.currentDestination?.route).isEqualTo("test?arg={arg}")
+        val route = navController.currentBackStackEntry?.toRoute<TestClass>()
+        assertThat(route!!.arg).containsExactly(TestEnum.ONE, TestEnum.TWO)
+    }
+
+    @UiThreadTest
+    @Test
+    fun testNavigateWithObjectNullEnumList() {
+        @Serializable @SerialName("test") class TestClass(val arg: List<TestEnum>? = null)
+
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(startDestination = TestClass(null)) { test<TestClass>() }
+
+        assertThat(navController.currentDestination?.route).isEqualTo("test?arg={arg}")
+        val route = navController.currentBackStackEntry?.toRoute<TestClass>()
+        assertThat(route!!.arg).isNull()
+
+        navController.navigate(TestClass(listOf(TestEnum.ONE, TestEnum.TWO)))
+        assertThat(navController.currentDestination?.route).isEqualTo("test?arg={arg}")
+        val route2 = navController.currentBackStackEntry?.toRoute<TestClass>()
+        assertThat(route2!!.arg).containsExactly(TestEnum.ONE, TestEnum.TWO)
+    }
+
+    @UiThreadTest
+    @Test
+    fun testNavigateWithObjectValueClass() {
+        @Serializable @SerialName("test") class TestClass(val arg: TestValueClass)
+        val navType =
+            object : NavType<TestValueClass>(false) {
+                override fun put(bundle: Bundle, key: String, value: TestValueClass) {
+                    bundle.putInt(key, value.id)
+                }
+
+                override fun get(bundle: Bundle, key: String): TestValueClass? =
+                    TestValueClass(bundle.getInt(key))
+
+                override fun parseValue(value: String): TestValueClass =
+                    TestValueClass(value.toInt())
+
+                override fun serializeAsValue(value: TestValueClass): String = value.id.toString()
+            }
+        val navController = createNavController()
+        navController.graph =
+            navController.createGraph(startDestination = TestClass(TestValueClass(12))) {
+                test<TestClass>(mapOf(typeOf<TestValueClass>() to navType))
+                test<TestValueClass>()
+            }
+        // test value class as arg type
+        assertThat(navController.currentDestination?.route).isEqualTo("test/{arg}")
+        val route = navController.currentBackStackEntry?.toRoute<TestClass>()
+        assertThat(route!!.arg).isEqualTo(TestValueClass(12))
+
+        // test value class as destination route
+        navController.navigate(TestValueClass(22))
+        assertThat(navController.currentDestination?.route)
+            .isEqualTo("androidx.navigation.NavControllerRouteTest.TestValueClass/{id}")
+        val route2 = navController.currentBackStackEntry?.toRoute<TestValueClass>()
+        assertThat(route2!!.id).isEqualTo(22)
+    }
+
+    @UiThreadTest
+    @Test
     fun testDeepLinkFromNavGraph() {
         val navController = createNavController()
         navController.graph = nav_simple_route_graph
@@ -5630,6 +5787,8 @@ class NavControllerRouteTest {
         navController.graph = navRepeatedGraph
         navController.graph = navRepeatedGraph
     }
+
+    @Serializable @JvmInline value class TestValueClass(val id: Int)
 
     private fun createNavController(): NavController {
         val navController = NavController(ApplicationProvider.getApplicationContext())

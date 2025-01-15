@@ -74,9 +74,10 @@ androidComponents {
 android {
     namespace = "androidx.privacysandbox.tools.integration.testsdk"
 
-    defaultConfig {
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    compileSdk = 35
+    compileSdkExtension = 14
 
+    defaultConfig {
         ksp {
             arg(aidlInput)
             arg(frameworkAidlInput)

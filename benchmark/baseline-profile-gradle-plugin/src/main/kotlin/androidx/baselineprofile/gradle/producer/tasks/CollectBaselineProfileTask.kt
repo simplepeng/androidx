@@ -24,7 +24,6 @@ import com.android.build.gradle.internal.tasks.BuildAnalyzer
 import com.android.buildanalyzer.common.TaskCategory
 import com.google.testing.platform.proto.api.core.TestSuiteResultProto
 import java.io.File
-import java.net.URI
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Project
@@ -38,11 +37,13 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.TaskProvider
+import org.gradle.work.DisableCachingByDefault
 
 /**
  * Collects the generated baseline profile from the instrumentation results of a previous run of the
  * ui tests.
  */
+@DisableCachingByDefault(because = "Mostly I/O bound task")
 @BuildAnalyzer(primaryTaskCategory = TaskCategory.OPTIMIZATION)
 abstract class CollectBaselineProfileTask : DefaultTask() {
 
@@ -56,7 +57,7 @@ abstract class CollectBaselineProfileTask : DefaultTask() {
         private const val PROP_KEY_INSTRUMENTATION_RUNNER_ARG_CLASS =
             "${PROP_KEY_PREFIX_INSTRUMENTATION_RUNNER_ARG}class"
 
-        private const val GOOGLE_STORAGE_SCHEMA = "gs"
+        private const val GOOGLE_STORAGE_SCHEMA = "gs:"
 
         private val PROFILE_NAMES = listOf("-baseline-prof-", "-startup-prof-")
 
@@ -164,7 +165,7 @@ abstract class CollectBaselineProfileTask : DefaultTask() {
                     // or "firebase.toolOutput" when using ftl. There could be also artifacts stored
                     // on google storage when running on ftl, so we need to skip those.
                     it.label.label in PROFILE_LABELS &&
-                        URI.create(it.sourcePath.path).scheme != GOOGLE_STORAGE_SCHEMA
+                        !it.sourcePath.path.startsWith(GOOGLE_STORAGE_SCHEMA)
                 }
                 .map { File(it.sourcePath.path) }
                 .filter {

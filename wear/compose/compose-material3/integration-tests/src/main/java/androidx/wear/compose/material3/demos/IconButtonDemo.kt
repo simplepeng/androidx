@@ -16,14 +16,10 @@
 
 package androidx.wear.compose.material3.demos
 
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CutCornerShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -107,45 +103,14 @@ fun IconButtonDemo() {
         }
         item { ListHeader { Text("With onLongClick") } }
         item { IconButtonWithOnLongClickSample { showOnLongClickToast(context) } }
-        item { ListHeader { Text("Corner Animation") } }
+        item { ListHeader { Text("Animated") } }
         item {
             Row {
                 IconButtonWithCornerAnimationSample()
                 Spacer(modifier = Modifier.width(5.dp))
-                IconButtonWithCornerAnimationSample()
-            }
-        }
-        item { ListHeader { Text("Morphed Animation") } }
-        item {
-            Row {
-                val interactionSource1 = remember { MutableInteractionSource() }
-                FilledIconButton(
-                    onClick = {},
-                    shape =
-                        IconButtonDefaults.animatedShape(
-                            interactionSource1,
-                            shape = CutCornerShape(5.dp),
-                            pressedShape = RoundedCornerShape(5.dp)
-                        ),
-                    interactionSource = interactionSource1
-                ) {
-                    FavoriteIcon(ButtonDefaults.IconSize)
-                }
-                Spacer(modifier = Modifier.width(5.dp))
-                val interactionSource2 = remember { MutableInteractionSource() }
-                FilledIconButton(
-                    onClick = {},
-                    colors = IconButtonDefaults.filledVariantIconButtonColors(),
-                    shape =
-                        IconButtonDefaults.animatedShape(
-                            interactionSource2,
-                            shape = CutCornerShape(5.dp),
-                            pressedShape = RoundedCornerShape(5.dp)
-                        ),
-                    interactionSource = interactionSource2
-                ) {
-                    FavoriteIcon(ButtonDefaults.IconSize)
-                }
+                IconButtonWithCornerAnimationSample(
+                    colors = IconButtonDefaults.filledVariantIconButtonColors()
+                )
             }
         }
         item { ListHeader { Text("Sizes") } }
@@ -199,13 +164,11 @@ fun ImageButtonDemo() {
         }
         item { ListHeader { Text("Animated Shape") } }
         item {
-            val interactionSource = remember { MutableInteractionSource() }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButtonWithImageSample(
                     painterResource(R.drawable.card_background),
                     enabled = true,
-                    interactionSource = interactionSource,
-                    shape = IconButtonDefaults.animatedShape(interactionSource)
+                    shapes = IconButtonDefaults.animatedShapes()
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 IconButtonWithImageSample(

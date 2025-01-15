@@ -16,6 +16,7 @@
 
 package androidx.wear.compose.material3.demos
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ import androidx.wear.compose.integration.demos.common.ComposableDemo
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.OutlinedButton
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.TimeText
@@ -52,7 +54,9 @@ val TimeTextDemos =
         ComposableDemo("Clock with Icon") { TimeTextWithIcon() },
         ComposableDemo("Clock with custom colors") { TimeTextWithCustomColors() },
         ComposableDemo("Clock with custom font size") { TimeTextCustomSize() },
-        ComposableDemo("Clock on list") { TimeTextOnScreen() }
+        ComposableDemo("Clock on list") { TimeTextOnScreen() },
+        ComposableDemo("Clock on white background") { TimeTextOnScreenWhiteBackground() },
+        ComposableDemo("Background override") { TimeTextBackgroundOverride() }
     )
 
 @Composable
@@ -148,5 +152,21 @@ fun TimeTextOnScreen() {
         }
         // Timetext later so it's on top.
         TimeText { time() }
+    }
+}
+
+@Composable
+fun TimeTextOnScreenWhiteBackground() {
+    Box(Modifier.fillMaxSize().background(Color.White)) { TimeText { time() } }
+}
+
+@Composable
+fun TimeTextBackgroundOverride() {
+    Box(Modifier.fillMaxSize().background(Color.DarkGray)) {
+        MaterialTheme(
+            colorScheme = MaterialTheme.colorScheme.copy(background = Color.Transparent)
+        ) {
+            TimeText { time() }
+        }
     }
 }

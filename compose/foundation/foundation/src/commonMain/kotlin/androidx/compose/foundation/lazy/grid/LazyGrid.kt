@@ -17,6 +17,7 @@
 package androidx.compose.foundation.lazy.grid
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.OverscrollEffect
 import androidx.compose.foundation.checkScrollableContainerConstraints
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.Orientation
@@ -42,7 +43,6 @@ import androidx.compose.ui.graphics.GraphicsContext
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.platform.LocalGraphicsContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
@@ -72,6 +72,8 @@ internal fun LazyGrid(
     flingBehavior: FlingBehavior = ScrollableDefaults.flingBehavior(),
     /** Whether scrolling via the user gestures is allowed. */
     userScrollEnabled: Boolean,
+    /** The overscroll effect to render and dispatch events to */
+    overscrollEffect: OverscrollEffect?,
     /** The vertical arrangement for items/lines. */
     verticalArrangement: Arrangement.Vertical,
     /** The horizontal arrangement for items/lines. */
@@ -103,12 +105,18 @@ internal fun LazyGrid(
         )
 
     val orientation = if (isVertical) Orientation.Vertical else Orientation.Horizontal
-    val reverseDirection =
-        ScrollableDefaults.reverseDirection(
-            LocalLayoutDirection.current,
-            orientation,
-            reverseLayout
-        )
+
+    val beyondBoundsModifier =
+        if (userScrollEnabled) {
+            Modifier.lazyLayoutBeyondBoundsModifier(
+                state = rememberLazyGridBeyondBoundsState(state = state),
+                beyondBoundsInfo = state.beyondBoundsInfo,
+                reverseLayout = reverseLayout,
+                orientation = orientation
+            )
+        } else {
+            Modifier
+        }
 
     LazyLayout(
         modifier =
@@ -122,23 +130,17 @@ internal fun LazyGrid(
                     userScrollEnabled = userScrollEnabled,
                     reverseScrolling = reverseLayout,
                 )
-                .lazyLayoutBeyondBoundsModifier(
-                    state = rememberLazyGridBeyondBoundsState(state = state),
-                    beyondBoundsInfo = state.beyondBoundsInfo,
-                    reverseLayout = reverseLayout,
-                    layoutDirection = LocalLayoutDirection.current,
-                    orientation = orientation,
-                    enabled = userScrollEnabled
-                )
+                .then(beyondBoundsModifier)
                 .then(state.itemAnimator.modifier)
                 .scrollingContainer(
                     state = state,
                     orientation = orientation,
                     enabled = userScrollEnabled,
-                    reverseDirection = reverseDirection,
+                    reverseScrolling = reverseLayout,
                     flingBehavior = flingBehavior,
                     interactionSource = state.internalInteractionSource,
-                    overscrollEffect = ScrollableDefaults.overscrollEffect()
+                    useLocalOverscrollFactory = false,
+                    overscrollEffect = overscrollEffect
                 ),
         prefetchState = state.prefetchState,
         measurePolicy = measurePolicy,
@@ -187,6 +189,8 @@ private fun rememberLazyGridMeasurePolicy(
     ) {
         { containerConstraints ->
             state.measurementScopeInvalidator.attachToScope()
+            // Tracks if the lookahead pass has occurred
+            val isInLookaheadScope = state.hasLookaheadOccurred || isLookingAhead
             checkScrollableContainerConstraints(
                 containerConstraints,
                 if (isVertical) Orientation.Vertical else Orientation.Horizontal
@@ -227,7 +231,7 @@ private fun rememberLazyGridMeasurePolicy(
 
             val itemProvider = itemProviderLambda()
             val spanLayoutProvider = itemProvider.spanLayoutProvider
-            val resolvedSlots = slots.invoke(density = this, constraints = containerConstraints)
+            val resolvedSlots = slots.invoke(density = this, constraints = contentConstraints)
             val slotsPerLine = resolvedSlots.sizes.size
             spanLayoutProvider.slotsPerLine = slotsPerLine
 
@@ -365,6 +369,13 @@ private fun rememberLazyGridMeasurePolicy(
                     state.beyondBoundsInfo
                 )
 
+            val scrollToBeConsumed =
+                if (isLookingAhead || !isInLookaheadScope) {
+                    state.scrollToBeConsumed
+                } else {
+                    state.scrollDeltaBetweenPasses
+                }
+
             // todo: wrap with snapshot when b/341782245 is resolved
             val measureResult =
                 measureLazyGrid(
@@ -377,7 +388,7 @@ private fun rememberLazyGridMeasurePolicy(
                     spaceBetweenLines = spaceBetweenLines,
                     firstVisibleLineIndex = firstVisibleLineIndex,
                     firstVisibleLineScrollOffset = firstVisibleLineScrollOffset,
-                    scrollToBeConsumed = state.scrollToBeConsumed,
+                    scrollToBeConsumed = scrollToBeConsumed,
                     constraints = contentConstraints,
                     isVertical = isVertical,
                     verticalArrangement = verticalArrangement,
@@ -387,6 +398,9 @@ private fun rememberLazyGridMeasurePolicy(
                     itemAnimator = state.itemAnimator,
                     slotsPerLine = slotsPerLine,
                     pinnedItems = pinnedItems,
+                    isInLookaheadScope = isInLookaheadScope,
+                    isLookingAhead = isLookingAhead,
+                    approachLayoutInfo = state.approachLayoutInfo,
                     coroutineScope = coroutineScope,
                     placementScopeInvalidator = state.placementScopeInvalidator,
                     prefetchInfoRetriever = prefetchInfoRetriever,
@@ -401,7 +415,7 @@ private fun rememberLazyGridMeasurePolicy(
                         )
                     }
                 )
-            state.applyMeasureResult(measureResult)
+            state.applyMeasureResult(measureResult, isLookingAhead = isLookingAhead)
             measureResult
         }
     }

@@ -25,7 +25,6 @@ import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -38,16 +37,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 /**
  * CompositionLocal for global reduce-motion setting, which turns off animations and screen
  * movements. To use, call LocalReduceMotion.current.enabled(), which returns a Boolean.
  */
-@get:ExperimentalWearFoundationApi
-@Suppress("OPT_IN_MARKER_ON_WRONG_TARGET")
-@ExperimentalWearFoundationApi
-val LocalReduceMotion: ProvidableCompositionLocal<ReduceMotion> = staticCompositionLocalOf {
+public val LocalReduceMotion: ProvidableCompositionLocal<ReduceMotion> = staticCompositionLocalOf {
     ReduceMotion {
         val context = LocalContext.current.applicationContext
         val flow = getReduceMotionFlowFor(context)
@@ -60,7 +55,7 @@ val LocalReduceMotion: ProvidableCompositionLocal<ReduceMotion> = staticComposit
  *
  * Defaults to [Color.Black] if not explicitly set.
  */
-val LocalSwipeToDismissBackgroundScrimColor: ProvidableCompositionLocal<Color> =
+public val LocalSwipeToDismissBackgroundScrimColor: ProvidableCompositionLocal<Color> =
     compositionLocalOf {
         Color.Black
     }
@@ -70,28 +65,26 @@ val LocalSwipeToDismissBackgroundScrimColor: ProvidableCompositionLocal<Color> =
  *
  * Defaults to [Color.Black] if not explicitly set.
  */
-val LocalSwipeToDismissContentScrimColor: ProvidableCompositionLocal<Color> = compositionLocalOf {
-    Color.Black
-}
+public val LocalSwipeToDismissContentScrimColor: ProvidableCompositionLocal<Color> =
+    compositionLocalOf {
+        Color.Black
+    }
 
 /**
  * ReduceMotion provides a means for callers to determine whether an app should turn off animations
  * and screen movement.
  */
-@ExperimentalWearFoundationApi
-fun interface ReduceMotion {
-    @Composable fun enabled(): Boolean
+public fun interface ReduceMotion {
+    @Composable public fun enabled(): Boolean
 }
 
 private val reduceMotionCache = AtomicReference<StateFlow<Boolean>>()
 
 // Callers of this function should pass an application context. Passing an activity context might
 // result in activity leaks.
-@Composable
 private fun getReduceMotionFlowFor(applicationContext: Context): StateFlow<Boolean> {
     val resolver = applicationContext.contentResolver
     val reduceMotionUri = Settings.Global.getUriFor(REDUCE_MOTION)
-    val coroutineScope = rememberCoroutineScope()
 
     return reduceMotionCache.updateAndGet {
         it
@@ -111,11 +104,9 @@ private fun getReduceMotionFlowFor(applicationContext: Context): StateFlow<Boole
                             }
                         }
 
-                    coroutineScope.launch {
-                        resolver.registerContentObserver(reduceMotionUri, false, contentObserver)
-                        // Force send value when flow is initialized
-                        resolver.notifyChange(reduceMotionUri, contentObserver)
-                    }
+                    resolver.registerContentObserver(reduceMotionUri, false, contentObserver)
+                    // Force send value when flow is initialized
+                    resolver.notifyChange(reduceMotionUri, contentObserver)
 
                     awaitClose { resolver.unregisterContentObserver(contentObserver) }
                 }

@@ -18,16 +18,22 @@ package androidx.privacysandbox.ui.integration.testapp
 
 import android.os.Build
 import android.os.Bundle
+import android.os.RemoteException
 import android.os.ext.SdkExtensions
 import android.util.Log
+import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresExtension
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.drawerlayout.widget.DrawerLayout.DrawerListener
 import androidx.privacysandbox.sdkruntime.client.SdkSandboxManagerCompat
@@ -51,22 +57,39 @@ class MainActivity : AppCompatActivity() {
     private lateinit var triggerSandboxDeathButton: Button
     private lateinit var zOrderToggleButton: SwitchMaterial
     private lateinit var viewabilityToggleButton: SwitchMaterial
+    private lateinit var composeToggleButton: SwitchMaterial
     private lateinit var mediationDropDownMenu: Spinner
     private lateinit var adTypeDropDownMenu: Spinner
+    private lateinit var titleBar: TextView
 
-    @AdType private var adType = AdType.BASIC_NON_WEBVIEW
+    @AdType
+    private val adType
+        get() =
+            if (::adTypeDropDownMenu.isInitialized) adTypeDropDownMenu.selectedItemPosition
+            else AdType.BASIC_NON_WEBVIEW
 
-    @MediationOption private var mediationOption = MediationOption.NON_MEDIATED
-    private var drawViewabilityLayer = false
+    @MediationOption
+    private val mediationOption
+        get() =
+            if (::mediationDropDownMenu.isInitialized) mediationDropDownMenu.selectedItemPosition
+            else MediationOption.NON_MEDIATED
+
+    private val drawViewabilityLayer
+        get() = viewabilityToggleButton.isChecked
+
+    private var useCompose = false
+    private var selectedCUJMenuId = R.id.item_resize
 
     // TODO(b/257429573): Remove this line once fixed.
     @RequiresExtension(extension = SdkExtensions.AD_SERVICES, version = 5)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        titleBar = findViewById(R.id.title_bar)
         drawerLayout = findViewById(R.id.drawer)
         navigationView = findViewById(R.id.navigation_view)
         zOrderToggleButton = findViewById(R.id.zorder_below_switch)
+        composeToggleButton = findViewById(R.id.compose_switch)
         viewabilityToggleButton = findViewById(R.id.display_viewability_switch)
         triggerSandboxDeathButton = findViewById(R.id.trigger_sandbox_death)
         mediationDropDownMenu = findViewById(R.id.mediation_dropdown_menu)
@@ -104,6 +127,7 @@ class MainActivity : AppCompatActivity() {
                 // TODO(b/337793172): Replace with a default fragment
                 switchContentFragment(ResizeFragment(), "Resize CUJ")
 
+                setWindowsInsetsListener()
                 initializeOptionsButton()
                 initializeDrawer()
             } catch (e: LoadSdkCompatException) {
@@ -133,9 +157,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setWindowsInsetsListener() {
+        val params = titleBar.layoutParams as ViewGroup.MarginLayoutParams
+        ViewCompat.setOnApplyWindowInsetsListener(titleBar) { view, insets ->
+            val systemWindowInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+
+            params.topMargin = systemWindowInsets.top
+            view.layoutParams = params
+
+            insets
+        }
+    }
+
     /** Kill the sandbox process */
     private fun triggerSandboxDeath() {
-        currentFragment.getSdkApi().triggerProcessDeath()
+        try {
+            currentFragment.getSdkApi().triggerProcessDeath()
+        } catch (ignored: RemoteException) {
+            // avoids a crash when clicking the "trigger sandbox death" button twice
+        }
     }
 
     private fun initializeToggles() {
@@ -143,6 +183,7 @@ class MainActivity : AppCompatActivity() {
         initializeMediationDropDown()
         initializeAdTypeDropDown()
         initializeZOrderToggleButton()
+        initializeComposeToggleButton()
     }
 
     private fun disableAllControls() {
@@ -150,6 +191,7 @@ class MainActivity : AppCompatActivity() {
         adTypeDropDownMenu.isEnabled = false
         viewabilityToggleButton.isEnabled = false
         zOrderToggleButton.isEnabled = false
+        composeToggleButton.isEnabled = false
     }
 
     private fun enableAllControls() {
@@ -157,13 +199,11 @@ class MainActivity : AppCompatActivity() {
         adTypeDropDownMenu.isEnabled = true
         viewabilityToggleButton.isEnabled = true
         zOrderToggleButton.isEnabled = true
+        composeToggleButton.isEnabled = true
     }
 
     private fun initializeViewabilityToggleButton() {
-        viewabilityToggleButton.setOnCheckedChangeListener { _, isChecked ->
-            drawViewabilityLayer = isChecked
-            loadAllAds()
-        }
+        viewabilityToggleButton.setOnCheckedChangeListener { _, _ -> loadAllAds() }
     }
 
     private fun initializeMediationDropDown() {
@@ -178,27 +218,7 @@ class MainActivity : AppCompatActivity() {
                 mediationDropDownMenu.adapter = adapter
             }
 
-        mediationDropDownMenu.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                var isCalledOnStartingApp = true
-
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    selectedMediationOptionId: Long
-                ) {
-                    if (isCalledOnStartingApp) {
-                        isCalledOnStartingApp = false
-                        return
-                    }
-
-                    mediationOption = selectedMediationOptionId.toInt()
-                    loadAllAds()
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
-            }
+        mediationDropDownMenu.onItemSelectedListener = OnItemSelectedListener()
     }
 
     private fun initializeAdTypeDropDown() {
@@ -212,38 +232,19 @@ class MainActivity : AppCompatActivity() {
                 adTypeDropDownMenu.adapter = adapter
             }
 
-        adTypeDropDownMenu.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                var isCalledOnStartingApp = true
-
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    selectedAdOptionId: Long
-                ) {
-                    if (isCalledOnStartingApp) {
-                        isCalledOnStartingApp = false
-                        return
-                    }
-                    adType =
-                        when (position) {
-                            0 -> AdType.BASIC_NON_WEBVIEW
-                            1 -> AdType.BASIC_WEBVIEW
-                            2 -> AdType.WEBVIEW_FROM_LOCAL_ASSETS
-                            3 -> AdType.NON_WEBVIEW_VIDEO
-                            else -> AdType.BASIC_NON_WEBVIEW
-                        }
-                    loadAllAds()
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
-            }
+        adTypeDropDownMenu.onItemSelectedListener = OnItemSelectedListener()
     }
 
     private fun initializeZOrderToggleButton() {
         zOrderToggleButton.setOnCheckedChangeListener { _, isChecked ->
             BaseFragment.isZOrderOnTop = !isChecked
+        }
+    }
+
+    private fun initializeComposeToggleButton() {
+        composeToggleButton.setOnCheckedChangeListener { _, isChecked ->
+            useCompose = isChecked
+            selectCuj(navigationView.menu.findItem(selectedCUJMenuId))
         }
     }
 
@@ -281,16 +282,29 @@ class MainActivity : AppCompatActivity() {
             }
         )
         navigationView.setNavigationItemSelectedListener {
-            val itemId = it.itemId
-            when (itemId) {
-                R.id.item_resize -> switchContentFragment(ResizeFragment(), it.title)
-                R.id.item_scroll -> switchContentFragment(ScrollFragment(), it.title)
-                R.id.item_pooling_container ->
-                    switchContentFragment(PoolingContainerFragment(), it.title)
-                else -> {
-                    Log.e(TAG, "Invalid fragment option")
-                    true
+            selectCuj(it)
+            selectedCUJMenuId = it.itemId
+            true
+        }
+    }
+
+    private fun selectCuj(menuItem: MenuItem) {
+        when (menuItem.itemId) {
+            R.id.item_resize -> switchContentFragment(ResizeFragment(), menuItem.title)
+            R.id.item_scroll -> switchContentFragment(ScrollFragment(), menuItem.title)
+            R.id.item_pooling_container ->
+                switchContentFragment(PoolingContainerFragment(), menuItem.title)
+            R.id.item_fullscreen ->
+                if (useCompose) {
+                    switchContentFragment(
+                        FullscreenSetupComposeFragment(),
+                        getString(R.string.fullscreen_compose_cuj)
+                    )
+                } else {
+                    switchContentFragment(FullscreenSetupFragment(), menuItem.title)
                 }
+            else -> {
+                Log.e(TAG, "Invalid fragment option")
             }
         }
     }
@@ -303,7 +317,7 @@ class MainActivity : AppCompatActivity() {
             .replace(R.id.content_fragment_container, fragment)
             .commit()
         currentFragment = fragment
-        title?.let { runOnUiThread { setTitle(it) } }
+        title?.let { runOnUiThread { titleBar.text = title } }
         return true
     }
 
@@ -312,12 +326,26 @@ class MainActivity : AppCompatActivity() {
         currentFragment.handleLoadAdFromDrawer(adType, mediationOption, drawViewabilityLayer)
     }
 
+    private inner class OnItemSelectedListener : AdapterView.OnItemSelectedListener {
+        var isCalledOnStartingApp = true
+
+        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+            if (isCalledOnStartingApp) {
+                isCalledOnStartingApp = false
+                return
+            }
+            loadAllAds()
+        }
+
+        override fun onNothingSelected(parent: AdapterView<*>?) {}
+    }
+
     companion object {
         private const val TAG = "TestSandboxClient"
 
         /** Name of the SDK to be loaded. */
-        private const val SDK_NAME = "androidx.privacysandbox.ui.integration.testsdkprovider"
+        private const val SDK_NAME = "androidx.privacysandbox.ui.integration.testsdkproviderwrapper"
         private const val MEDIATEE_SDK_NAME =
-            "androidx.privacysandbox.ui.integration.mediateesdkprovider"
+            "androidx.privacysandbox.ui.integration.mediateesdkproviderwrapper"
     }
 }

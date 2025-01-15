@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.coerceAtLeast
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.sp
@@ -772,7 +774,7 @@ private class OutlinedTextFieldMeasurePolicy(
         val bottomPadding = paddingValues.calculateBottomPadding().roundToPx()
 
         // measure leading icon
-        val relaxedConstraints = constraints.copyMaxDimensions()
+        val relaxedConstraints = constraints.copy(minWidth = 0, minHeight = 0)
         val leadingPlaceable =
             measurables.fastFirstOrNull { it.layoutId == LeadingId }?.measure(relaxedConstraints)
         occupiedSpaceHorizontally += widthOrZero(leadingPlaceable)
@@ -947,7 +949,7 @@ private class OutlinedTextFieldMeasurePolicy(
             labelPlaceableWidth = labelWidth,
             placeholderPlaceableWidth = placeholderWidth,
             animationProgress = animationProgress,
-            constraints = ZeroConstraints,
+            constraints = Constraints(),
             density = density,
             paddingValues = paddingValues,
         )
@@ -999,7 +1001,7 @@ private class OutlinedTextFieldMeasurePolicy(
             labelPlaceableHeight = labelHeight,
             placeholderPlaceableHeight = placeholderHeight,
             animationProgress = animationProgress,
-            constraints = ZeroConstraints,
+            constraints = Constraints(),
             density = density,
             paddingValues = paddingValues
         )
@@ -1043,7 +1045,7 @@ private fun calculateWidth(
     val focusedLabelWidth =
         ((labelPlaceableWidth + labelHorizontalPadding) * animationProgress).roundToInt()
 
-    return maxOf(wrappedWidth, focusedLabelWidth, constraints.minWidth)
+    return constraints.constrainWidth(max(wrappedWidth, focusedLabelWidth))
 }
 
 /**
@@ -1076,8 +1078,7 @@ private fun calculateHeight(
     val bottomPadding = paddingValues.calculateBottomPadding().value * density
     val middleSectionHeight = actualTopPadding + inputFieldHeight + bottomPadding
 
-    return max(
-        constraints.minHeight,
+    return constraints.constrainHeight(
         maxOf(leadingPlaceableHeight, trailingPlaceableHeight, middleSectionHeight.roundToInt())
     )
 }

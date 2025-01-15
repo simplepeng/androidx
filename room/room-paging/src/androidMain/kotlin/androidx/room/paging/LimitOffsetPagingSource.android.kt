@@ -25,7 +25,7 @@ import androidx.room.RoomRawQuery
 import androidx.room.RoomSQLiteQuery
 import androidx.room.paging.CommonLimitOffsetImpl.Companion.BUG_LINK
 import androidx.room.paging.util.getClippedRefreshKey
-import androidx.sqlite.SQLiteStatement
+import androidx.room.util.performSuspending
 import androidx.sqlite.db.SupportSQLiteQuery
 
 /**
@@ -66,10 +66,11 @@ actual constructor(
     override val jumpingSupported: Boolean
         get() = true
 
-    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Value> =
+    actual override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Value> =
         implementation.load(params)
 
-    override fun getRefreshKey(state: PagingState<Int, Value>): Int? = state.getClippedRefreshKey()
+    actual override fun getRefreshKey(state: PagingState<Int, Value>): Int? =
+        state.getClippedRefreshKey()
 
     protected open fun convertRows(cursor: Cursor): List<Value> {
         throw NotImplementedError(
@@ -78,7 +79,15 @@ actual constructor(
         )
     }
 
-    protected actual open fun convertRows(statement: SQLiteStatement, itemCount: Int): List<Value> {
-        return convertRows(SQLiteStatementCursor(statement, itemCount))
+    protected actual open suspend fun convertRows(
+        limitOffsetQuery: RoomRawQuery,
+        itemCount: Int
+    ): List<Value> {
+        return performSuspending(db, isReadOnly = true, inTransaction = false) { connection ->
+            connection.prepare(limitOffsetQuery.sql).use { statement ->
+                limitOffsetQuery.getBindingFunction().invoke(statement)
+                convertRows(SQLiteStatementCursor(statement, itemCount))
+            }
+        }
     }
 }

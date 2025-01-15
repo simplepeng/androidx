@@ -56,6 +56,8 @@ import androidx.camera.camera2.pipe.integration.testing.FakeCamera2CameraControl
 import androidx.camera.camera2.pipe.integration.testing.FakeCameraProperties
 import androidx.camera.camera2.pipe.integration.testing.FakeSessionProcessor
 import androidx.camera.camera2.pipe.integration.testing.FakeUseCaseCameraComponentBuilder
+import androidx.camera.camera2.pipe.testing.FakeCameraBackend
+import androidx.camera.camera2.pipe.testing.FakeCameraDevices
 import androidx.camera.camera2.pipe.testing.FakeCameraMetadata
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -69,6 +71,7 @@ import androidx.camera.core.impl.StreamSpec
 import androidx.camera.core.impl.utils.executor.CameraXExecutors
 import androidx.camera.testing.fakes.FakeCamera
 import androidx.camera.testing.impl.SurfaceTextureProvider
+import androidx.camera.testing.impl.fakes.FakeEncoderProfilesProvider
 import androidx.camera.testing.impl.fakes.FakeUseCase
 import androidx.camera.testing.impl.fakes.FakeUseCaseConfig
 import androidx.test.core.app.ApplicationProvider
@@ -677,14 +680,20 @@ class UseCaseManagerTest {
             FakeCameraMetadata(cameraId = cameraId, characteristics = characteristicsMap)
         val fakeCamera = FakeCamera()
         val cameraPipe = CameraPipe(CameraPipe.Config(ApplicationProvider.getApplicationContext()))
+        val fakeCameraBackend = FakeCameraBackend(mapOf(cameraId to fakeCameraMetadata))
         return UseCaseManager(
                 cameraPipe = cameraPipe,
+                cameraDevices =
+                    FakeCameraDevices(
+                        fakeCameraBackend.id,
+                        emptySet(),
+                        mapOf(fakeCameraBackend.id to listOf(fakeCameraMetadata))
+                    ),
                 cameraCoordinator = CameraCoordinatorAdapter(cameraPipe, cameraPipe.cameras()),
                 callbackMap = CameraCallbackMap(),
                 requestListener = ComboRequestListener(),
                 cameraConfig = CameraConfig(cameraId),
                 builder = useCaseCameraComponentBuilder,
-                cameraControl = fakeCamera.cameraControlInternal,
                 zslControl = ZslControlNoOpImpl(),
                 controls = controls as java.util.Set<UseCaseCameraControl>,
                 camera2CameraControl =
@@ -706,6 +715,7 @@ class UseCaseManagerTest {
                 useCaseThreads = { useCaseThreads },
                 cameraInfoInternal = { fakeCamera.cameraInfoInternal },
                 templateParamsOverride = templateParamsOverride,
+                encoderProfilesProvider = FakeEncoderProfilesProvider.Builder().build(),
                 context = ApplicationProvider.getApplicationContext(),
                 cameraProperties =
                     FakeCameraProperties(
@@ -731,7 +741,7 @@ class UseCaseManagerTest {
     private fun createFakePreview(customDeferrableSurface: DeferrableSurface? = null) =
         createFakeTestUseCase(
             "Preview",
-            CameraDevice.TEMPLATE_PREVIEW,
+            TEMPLATE_PREVIEW,
             Preview::class.java,
             customDeferrableSurface,
         )
@@ -747,7 +757,7 @@ class UseCaseManagerTest {
     private fun createFakeImageAnalysis(customDeferrableSurface: DeferrableSurface? = null) =
         createFakeTestUseCase(
             "ImageAnalysis",
-            CameraDevice.TEMPLATE_PREVIEW,
+            TEMPLATE_PREVIEW,
             ImageAnalysis::class.java,
             customDeferrableSurface,
         )

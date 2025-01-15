@@ -17,8 +17,12 @@
 package androidx.core.telecom.test
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.Build
+import android.os.Build.VERSION
 import android.os.Build.VERSION_CODES
 import android.util.Log
 import androidx.core.telecom.CallAttributesCompat
@@ -35,6 +39,7 @@ import androidx.core.telecom.test.VoipAppWithExtensions.VoipAppWithExtensionsCon
 import androidx.core.telecom.test.VoipAppWithExtensions.VoipAppWithExtensionsControlLocal
 import androidx.core.telecom.test.utils.BaseTelecomTest
 import androidx.core.telecom.test.utils.TestCallCallbackListener
+import androidx.core.telecom.test.utils.TestMuteStateReceiver
 import androidx.core.telecom.test.utils.TestUtils
 import androidx.core.telecom.util.ExperimentalAppActions
 import androidx.test.filters.LargeTest
@@ -44,6 +49,7 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.rule.ServiceTestRule
 import java.util.concurrent.atomic.AtomicInteger
 import junit.framework.TestCase.assertEquals
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -171,6 +177,9 @@ class E2EExtensionTests(private val parameters: TestParameters) : BaseTelecomTes
     @get:Rule
     val readPhoneNumbersRule: GrantPermissionRule =
         GrantPermissionRule.grant(Manifest.permission.READ_PHONE_NUMBERS)!!
+    @get:Rule
+    val modifyAudioRule: GrantPermissionRule =
+        GrantPermissionRule.grant(Manifest.permission.MODIFY_AUDIO_SETTINGS)!!
 
     @get:Rule val voipAppServiceRule: ServiceTestRule = ServiceTestRule()
 
@@ -408,40 +417,99 @@ class E2EExtensionTests(private val parameters: TestParameters) : BaseTelecomTes
     @Test(timeout = 10000)
     fun testVoipAndIcsTogglingTheLocalCallSilenceExtension(): Unit = runBlocking {
         usingIcs { ics ->
-            val voipAppControl = bindToVoipAppWithExtensions()
-            val callback = TestCallCallbackListener(this)
-            voipAppControl.setCallback(callback)
-            val voipCallId =
-                createAndVerifyVoipCall(
-                    voipAppControl,
-                    callback,
-                    listOf(getLocalSilenceCapability(setOf())),
-                    parameters.direction
+            val globalMuteStateReceiver = TestMuteStateReceiver()
+            try {
+                mContext.registerReceiver(
+                    globalMuteStateReceiver,
+                    IntentFilter(AudioManager.ACTION_MICROPHONE_MUTE_CHANGED)
                 )
+                val voipAppControl = bindToVoipAppWithExtensions()
+                val callback = TestCallCallbackListener(this)
+                voipAppControl.setCallback(callback)
+                val voipCallId =
+                    createAndVerifyVoipCall(
+                        voipAppControl,
+                        callback,
+                        listOf(getLocalSilenceCapability(setOf())),
+                        parameters.direction
+                    )
 
-            val call = TestUtils.waitOnInCallServiceToReachXCalls(ics, 1)!!
-            var hasConnected = false
-            with(ics) {
-                connectExtensions(call) {
-                    val localSilenceExtension = CachedLocalSilence(this)
-                    onConnected {
-                        hasConnected = true
-                        // VoIP --> ICS
-                        voipAppControl.updateIsLocallySilenced(false)
-                        localSilenceExtension.waitForLocalCallSilenceState(false)
+                val call = TestUtils.waitOnInCallServiceToReachXCalls(ics, 1)!!
+                var hasConnected = false
 
-                        voipAppControl.updateIsLocallySilenced(true)
-                        localSilenceExtension.waitForLocalCallSilenceState(true)
+                val am = mContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                with(ics) {
+                    connectExtensions(call) {
+                        val localSilenceExtension = CachedLocalSilence(this)
+                        onConnected {
+                            hasConnected = true
+                            // simulate an external global mute while the local call silence
+                            // extension is connected.  The expected behavior is that telecom will
+                            // undo this op
+                            if (VERSION.SDK_INT >= VERSION_CODES.P) {
+                                // a delay is needed so the call goes active first and then
+                                // the mute is called. Otherwise, telecom will unmute during the
+                                // call setup
+                                delay(500)
+                                Log.i("LCS_Test", "manually muting the mic")
+                                am.setMicrophoneMute(true)
+                                assertTrue(am.isMicrophoneMute)
+                                waitForGlobalMuteState(true, "1", callback, globalMuteStateReceiver)
+                                // LocalCallSilenceExtensionImpl handles globally unmuting the
+                                // microphone
+                                waitForGlobalMuteState(
+                                    false,
+                                    "2",
+                                    callback,
+                                    globalMuteStateReceiver
+                                )
+                            }
 
-                        // ICS -> VOIP
-                        localSilenceExtension.extension.requestLocalCallSilenceUpdate(false)
-                        callback.waitForIsLocalSilenced(voipCallId, false)
+                            // VoIP --> ICS
+                            voipAppControl.updateIsLocallySilenced(false)
+                            localSilenceExtension.waitForLocalCallSilenceState(false)
 
-                        call.disconnect()
+                            // signal that the app wants to locally silence the call
+                            voipAppControl.updateIsLocallySilenced(true)
+                            localSilenceExtension.waitForLocalCallSilenceState(true)
+
+                            // ICS -> VOIP
+                            localSilenceExtension.extension.requestLocalCallSilenceUpdate(false)
+                            callback.waitForIsLocalSilenced(voipCallId, false)
+
+                            // set the call state via voip app control
+                            if (VERSION.SDK_INT >= VERSION_CODES.R) {
+                                call.hold()
+                                waitForGlobalMuteState(true, "3", callback, globalMuteStateReceiver)
+                                call.unhold()
+                                waitForGlobalMuteState(
+                                    false,
+                                    "4",
+                                    callback,
+                                    globalMuteStateReceiver
+                                )
+                            }
+                            call.disconnect()
+                        }
                     }
                 }
+                assertTrue("onConnected never received", hasConnected)
+            } finally {
+                mContext.unregisterReceiver(globalMuteStateReceiver)
             }
-            assertTrue("onConnected never received", hasConnected)
+        }
+    }
+
+    private suspend fun waitForGlobalMuteState(
+        expectedValue: Boolean,
+        tag: String,
+        cb: TestCallCallbackListener,
+        receiver: TestMuteStateReceiver
+    ) {
+        if (VERSION.SDK_INT >= VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            cb.waitForGlobalMuteState(expectedValue, tag)
+        } else if (VERSION.SDK_INT >= VERSION_CODES.P) {
+            receiver.waitForGlobalMuteState(expectedValue, tag)
         }
     }
 

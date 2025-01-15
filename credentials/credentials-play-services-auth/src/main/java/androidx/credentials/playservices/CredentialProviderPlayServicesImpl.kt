@@ -17,6 +17,7 @@
 package androidx.credentials.playservices
 
 import android.content.Context
+import android.os.Build
 import android.os.CancellationSignal
 import android.util.Log
 import androidx.annotation.RestrictTo
@@ -42,13 +43,14 @@ import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
-import androidx.credentials.playservices.controllers.BeginSignIn.CredentialProviderBeginSignInController
-import androidx.credentials.playservices.controllers.CreatePassword.CredentialProviderCreatePasswordController
-import androidx.credentials.playservices.controllers.CreatePublicKeyCredential.CredentialProviderCreatePublicKeyCredentialController
-import androidx.credentials.playservices.controllers.CreateRestoreCredential.CredentialProviderCreateRestoreCredentialController
-import androidx.credentials.playservices.controllers.GetRestoreCredential.CredentialProviderGetDigitalCredentialController
-import androidx.credentials.playservices.controllers.GetRestoreCredential.CredentialProviderGetRestoreCredentialController
-import androidx.credentials.playservices.controllers.GetSignInIntent.CredentialProviderGetSignInIntentController
+import androidx.credentials.playservices.controllers.blockstore.createrestorecredential.CredentialProviderCreateRestoreCredentialController
+import androidx.credentials.playservices.controllers.blockstore.getrestorecredential.CredentialProviderGetRestoreCredentialController
+import androidx.credentials.playservices.controllers.identityauth.beginsignin.CredentialProviderBeginSignInController
+import androidx.credentials.playservices.controllers.identityauth.createpassword.CredentialProviderCreatePasswordController
+import androidx.credentials.playservices.controllers.identityauth.createpublickeycredential.CredentialProviderCreatePublicKeyCredentialController
+import androidx.credentials.playservices.controllers.identityauth.getsigninintent.CredentialProviderGetSignInIntentController
+import androidx.credentials.playservices.controllers.identitycredentials.createpublickeycredential.CreatePublicKeyCredentialController
+import androidx.credentials.playservices.controllers.identitycredentials.getdigitalcredential.CredentialProviderGetDigitalCredentialController
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.blockstore.restorecredential.RestoreCredential
 import com.google.android.gms.auth.blockstore.restorecredential.RestoreCredentialStatusCodes
@@ -90,8 +92,21 @@ class CredentialProviderPlayServicesImpl(private val context: Context) : Credent
                 }
                 return
             }
-            CredentialProviderGetDigitalCredentialController(context)
-                .invokePlayServices(request, callback, executor, cancellationSignal)
+            if (Build.VERSION.SDK_INT >= 23) {
+                CredentialProviderGetDigitalCredentialController(context)
+                    .invokePlayServices(request, callback, executor, cancellationSignal)
+            } else {
+                cancellationReviewerWithCallback(cancellationSignal) {
+                    executor.execute {
+                        callback.onError(
+                            GetCredentialProviderConfigurationException(
+                                "this feature requires the minimum API level to be 23"
+                            )
+                        )
+                    }
+                }
+                return
+            }
         } else if (isGetRestoreCredentialRequest(request)) {
             if (!isAvailableOnDevice(MIN_GMS_APK_VERSION_RESTORE_CRED)) {
                 cancellationReviewerWithCallback(cancellationSignal) {
@@ -134,8 +149,13 @@ class CredentialProviderPlayServicesImpl(private val context: Context) : Credent
                     .invokePlayServices(request, callback, executor, cancellationSignal)
             }
             is CreatePublicKeyCredentialRequest -> {
-                CredentialProviderCreatePublicKeyCredentialController.getInstance(context)
-                    .invokePlayServices(request, callback, executor, cancellationSignal)
+                if (request.isConditionalCreateRequest) {
+                    CreatePublicKeyCredentialController.getInstance(context)
+                        .invokePlayServices(request, callback, executor, cancellationSignal)
+                } else {
+                    CredentialProviderCreatePublicKeyCredentialController.getInstance(context)
+                        .invokePlayServices(request, callback, executor, cancellationSignal)
+                }
             }
             is CreateRestoreCredentialRequest -> {
                 if (!isAvailableOnDevice(MIN_GMS_APK_VERSION_RESTORE_CRED)) {

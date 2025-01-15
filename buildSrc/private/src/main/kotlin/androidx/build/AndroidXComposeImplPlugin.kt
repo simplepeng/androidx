@@ -113,11 +113,6 @@ private fun configureComposeCompilerPlugin(project: Project, extension: AndroidX
         // If a project has opted-out of Compose compiler plugin, don't add it
         if (!extension.composeCompilerPluginEnabled) return@afterEvaluate
 
-        val androidXExtension =
-            project.extensions.findByType(AndroidXExtension::class.java)
-                ?: throw Exception("You have applied AndroidXComposePlugin without AndroidXPlugin")
-        val shouldPublish = androidXExtension.shouldPublish()
-
         // Create configuration that we'll use to load Compose compiler plugin
         val configuration =
             project.configurations.create(COMPILER_PLUGIN_CONFIGURATION) {
@@ -125,6 +120,7 @@ private fun configureComposeCompilerPlugin(project: Project, extension: AndroidX
             }
         // Add Compose compiler plugin to kotlinPlugin configuration, making sure it works
         // for Playground builds as well
+        val isPlayground = ProjectLayoutType.isPlayground(project)
         val compilerPluginVersion = project.getVersionByName("kotlin")
         project.dependencies.add(
             COMPILER_PLUGIN_CONFIGURATION,
@@ -132,7 +128,7 @@ private fun configureComposeCompilerPlugin(project: Project, extension: AndroidX
         )
 
         if (
-            !ProjectLayoutType.isPlayground(project) &&
+            !isPlayground &&
                 // ksp is also a compiler plugin, updating Kotlin for it will likely break the build
                 !project.plugins.hasPlugin("com.google.devtools.ksp")
         ) {
@@ -185,14 +181,10 @@ private fun configureComposeCompilerPlugin(project: Project, extension: AndroidX
 
             compile.pluginClasspath.from(kotlinPluginProvider.get())
 
-            // todo(b/291587160): enable when Compose compiler 2.0.20 is merged
-            // compile.enableFeatureFlag(ComposeFeatureFlag.StrongSkipping)
-            // compile.enableFeatureFlag(ComposeFeatureFlag.OptimizeNonSkippingGroups)
-            compile.addPluginOption(ComposeCompileOptions.StrongSkipping, "true")
-            compile.addPluginOption(ComposeCompileOptions.NonSkippingGroupOptimization, "true")
-            if (shouldPublish) {
-                compile.addPluginOption(ComposeCompileOptions.SourceOption, "true")
-            }
+            compile.enableFeatureFlag(ComposeFeatureFlag.OptimizeNonSkippingGroups)
+            compile.enableFeatureFlag(ComposeFeatureFlag.PausableComposition)
+
+            compile.addPluginOption(ComposeCompileOptions.SourceOption, "true")
         }
 
         if (enableMetrics) {
@@ -301,4 +293,5 @@ private enum class ComposeCompileOptions(val pluginId: String, val key: String) 
 private enum class ComposeFeatureFlag(val featureName: String) {
     StrongSkipping("StrongSkipping"),
     OptimizeNonSkippingGroups("OptimizeNonSkippingGroups"),
+    PausableComposition("PausableComposition"),
 }

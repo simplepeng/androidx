@@ -22,6 +22,7 @@ import androidx.annotation.RestrictTo
 import androidx.annotation.VisibleForTesting
 import androidx.ink.geometry.internal.threadLocal
 import androidx.ink.nativeloader.NativeLoader
+import androidx.ink.nativeloader.UsedByNative
 
 /**
  * An immutable** complex shape expressed as a set of triangles. This is used to represent the shape
@@ -46,12 +47,12 @@ public class PartitionedMesh
 @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public constructor(
     /**
-     * This is the raw pointer address of an `ink::ModeledShape` that has been heap allocated to be
-     * owned solely by this JVM [PartitionedMesh] object. Although the `ink::ModeledShape` is owned
-     * exclusively by this [PartitionedMesh] object, it may be a copy of another
-     * `ink::ModeledShape`, where it has a copy of fairly lightweight metadata but shares ownership
-     * of the more heavyweight `ink::Mesh` objects. This class is responsible for freeing the
-     * `ink::ModeledShape` through its [finalize] method.
+     * This is the raw pointer address of an `ink::PartitionedMesh` that has been heap allocated to
+     * be owned solely by this JVM [PartitionedMesh] object. Although the `ink::PartitionedMesh` is
+     * owned exclusively by this [PartitionedMesh] object, it may be a copy of another
+     * `ink::PartitionedMesh`, where it has a copy of fairly lightweight metadata but shares
+     * ownership of the more heavyweight `ink::Mesh` objects. This class is responsible for freeing
+     * the `ink::PartitionedMesh` through its [finalize] method.
      */
     private var nativeAddress: Long
 ) {
@@ -68,7 +69,7 @@ public constructor(
      * Only for tests - creates a new empty [PartitionedMesh]. Since a [PartitionedMesh] is
      * immutable, this serves no practical purpose outside of tests.
      */
-    @VisibleForTesting internal constructor() : this(ModeledShapeNative.alloc())
+    @VisibleForTesting internal constructor() : this(PartitionedMeshNative.alloc())
 
     /**
      * Returns the number of render groups in this mesh. Each outline in the [PartitionedMesh]
@@ -77,13 +78,13 @@ public constructor(
      */
     @IntRange(from = 0)
     public fun getRenderGroupCount(): Int =
-        ModeledShapeNative.getRenderGroupCount(nativeAddress).also { check(it >= 0) }
+        PartitionedMeshNative.getRenderGroupCount(nativeAddress).also { check(it >= 0) }
 
     /** The [Mesh] objects that make up this shape. */
     private val meshesByGroup: List<List<Mesh>> = buildList {
         for (groupIndex in 0 until getRenderGroupCount()) {
             val nativeAddressesOfMeshes =
-                ModeledShapeNative.getNativeAddressesOfMeshes(nativeAddress, groupIndex)
+                PartitionedMeshNative.getNativeAddressesOfMeshes(nativeAddress, groupIndex)
             add(nativeAddressesOfMeshes.map(::Mesh))
         }
     }
@@ -119,7 +120,7 @@ public constructor(
         require(groupIndex >= 0 && groupIndex < getRenderGroupCount()) {
             "groupIndex=$groupIndex must be between 0 and getRenderGroupCount()=${getRenderGroupCount()}"
         }
-        return MeshFormat(ModeledShapeNative.getRenderGroupFormat(nativeAddress, groupIndex))
+        return MeshFormat(PartitionedMeshNative.getRenderGroupFormat(nativeAddress, groupIndex))
     }
 
     /**
@@ -140,7 +141,9 @@ public constructor(
         require(groupIndex >= 0 && groupIndex < getRenderGroupCount()) {
             "groupIndex=$groupIndex must be between 0 and getRenderGroupCount()=${getRenderGroupCount()}"
         }
-        return ModeledShapeNative.getOutlineCount(nativeAddress, groupIndex).also { check(it >= 0) }
+        return PartitionedMeshNative.getOutlineCount(nativeAddress, groupIndex).also {
+            check(it >= 0)
+        }
     }
 
     /**
@@ -155,7 +158,7 @@ public constructor(
         require(outlineIndex >= 0 && outlineIndex < getOutlineCount(groupIndex)) {
             "outlineIndex=$outlineIndex must be between 0 and getOutlineCount=${getOutlineCount(groupIndex)}"
         }
-        return ModeledShapeNative.getOutlineVertexCount(nativeAddress, groupIndex, outlineIndex)
+        return PartitionedMeshNative.getOutlineVertexCount(nativeAddress, groupIndex, outlineIndex)
             .also { check(it >= 0) }
     }
 
@@ -177,7 +180,7 @@ public constructor(
             "outlineVertexIndex=$outlineVertexIndex must be between 0 and " +
                 "outlineVertexCount($outlineVertexIndex)=$outlineVertexCount"
         }
-        ModeledShapeNative.fillOutlineMeshIndexAndMeshVertexIndex(
+        PartitionedMeshNative.fillOutlineMeshIndexAndMeshVertexIndex(
             nativeAddress,
             groupIndex,
             outlineIndex,
@@ -212,7 +215,7 @@ public constructor(
         triangle: Triangle,
         triangleToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Float =
-        ModeledShapeNative.modeledShapeTriangleCoverage(
+        PartitionedMeshNative.partitionedMeshTriangleCoverage(
             nativeAddress = nativeAddress,
             triangleP0X = triangle.p0.x,
             triangleP0Y = triangle.p0.y,
@@ -249,7 +252,7 @@ public constructor(
         box: Box,
         boxToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Float =
-        ModeledShapeNative.modeledShapeBoxCoverage(
+        PartitionedMeshNative.partitionedMeshBoxCoverage(
             nativeAddress = nativeAddress,
             boxXMin = box.xMin,
             boxYMin = box.yMin,
@@ -285,7 +288,7 @@ public constructor(
         parallelogram: Parallelogram,
         parallelogramToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Float =
-        ModeledShapeNative.modeledShapeParallelogramCoverage(
+        PartitionedMeshNative.partitionedMeshParallelogramCoverage(
             nativeAddress = nativeAddress,
             parallelogramCenterX = parallelogram.center.x,
             parallelogramCenterY = parallelogram.center.y,
@@ -323,7 +326,7 @@ public constructor(
         other: PartitionedMesh,
         otherShapeToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Float =
-        ModeledShapeNative.modeledShapeModeledShapeCoverage(
+        PartitionedMeshNative.partitionedMeshPartitionedMeshCoverage(
             thisShapeNativeAddress = nativeAddress,
             otherShapeNativeAddress = other.nativeAddress,
             otherShapeToThisTransformA = otherShapeToThis.m00,
@@ -357,7 +360,7 @@ public constructor(
         coverageThreshold: Float,
         triangleToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Boolean =
-        ModeledShapeNative.modeledShapeTriangleCoverageIsGreaterThan(
+        PartitionedMeshNative.partitionedMeshTriangleCoverageIsGreaterThan(
             nativeAddress = nativeAddress,
             triangleP0X = triangle.p0.x,
             triangleP0Y = triangle.p0.y,
@@ -396,7 +399,7 @@ public constructor(
         coverageThreshold: Float,
         boxToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Boolean =
-        ModeledShapeNative.modeledShapeBoxCoverageIsGreaterThan(
+        PartitionedMeshNative.partitionedMeshBoxCoverageIsGreaterThan(
             nativeAddress = nativeAddress,
             boxXMin = box.xMin,
             boxYMin = box.yMin,
@@ -434,7 +437,7 @@ public constructor(
         coverageThreshold: Float,
         parallelogramToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Boolean =
-        ModeledShapeNative.modeledShapeParallelogramCoverageIsGreaterThan(
+        PartitionedMeshNative.partitionedMeshParallelogramCoverageIsGreaterThan(
             nativeAddress = nativeAddress,
             parallelogramCenterX = parallelogram.center.x,
             parallelogramCenterY = parallelogram.center.y,
@@ -474,7 +477,7 @@ public constructor(
         coverageThreshold: Float,
         otherShapeToThis: AffineTransform = AffineTransform.IDENTITY,
     ): Boolean =
-        ModeledShapeNative.modeledShapeModeledShapeCoverageIsGreaterThan(
+        PartitionedMeshNative.partitionedMeshPartitionedMeshCoverageIsGreaterThan(
             thisShapeNativeAddress = nativeAddress,
             otherShapeNativeAddress = other.nativeAddress,
             coverageThreshold = coverageThreshold,
@@ -492,12 +495,12 @@ public constructor(
      * initialized in real time to satisfy that query.
      */
     public fun initializeSpatialIndex(): Unit =
-        ModeledShapeNative.initializeSpatialIndex(nativeAddress)
+        PartitionedMeshNative.initializeSpatialIndex(nativeAddress)
 
     /** Returns true if this MutableEnvelope's spatial index has been initialized. */
     @VisibleForTesting
     internal fun isSpatialIndexInitialized(): Boolean =
-        ModeledShapeNative.isSpatialIndexInitialized(nativeAddress)
+        PartitionedMeshNative.isSpatialIndexInitialized(nativeAddress)
 
     override fun toString(): String {
         val address = java.lang.Long.toHexString(nativeAddress)
@@ -507,7 +510,7 @@ public constructor(
     protected fun finalize() {
         // NOMUTANTS--Not tested post garbage collection.
         if (nativeAddress == 0L) return
-        ModeledShapeNative.free(nativeAddress)
+        PartitionedMeshNative.free(nativeAddress)
         nativeAddress = 0L
     }
 
@@ -520,41 +523,29 @@ public constructor(
  * [PartitionedMesh] itself (passes down an unused `jobject`, and doesn't work for native calls used
  * by constructors), or in [PartitionedMesh.Companion] (makes the `JNI_METHOD` naming less clear).
  */
-private object ModeledShapeNative {
+private object PartitionedMeshNative {
 
     init {
         NativeLoader.load()
     }
 
-    external fun alloc(): Long // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun alloc(): Long
 
-    external fun free(
-        nativeAddress: Long
-    ) // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun free(nativeAddress: Long)
 
-    external fun getNativeAddressesOfMeshes(
-        nativeAddress: Long,
-        groupIndex: Int
-    ): LongArray // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
+    external fun getNativeAddressesOfMeshes(nativeAddress: Long, groupIndex: Int): LongArray
 
-    external fun getRenderGroupCount(
-        nativeAddress: Long
-    ): Int // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun getRenderGroupCount(nativeAddress: Long): Int
 
-    external fun getRenderGroupFormat(
-        nativeAddress: Long,
-        groupIndex: Int
-    ): Long // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun getRenderGroupFormat(nativeAddress: Long, groupIndex: Int): Long
 
-    external fun getOutlineCount(
-        nativeAddress: Long,
-        groupIndex: Int
-    ): Int // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun getOutlineCount(nativeAddress: Long, groupIndex: Int): Int
 
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
     external fun getOutlineVertexCount(nativeAddress: Long, groupIndex: Int, outlineIndex: Int): Int
 
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
     external fun fillOutlineMeshIndexAndMeshVertexIndex(
         nativeAddress: Long,
         groupIndex: Int,
@@ -564,11 +555,11 @@ private object ModeledShapeNative {
     )
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Triangle` objects and calculate coverage
+     * JNI method to construct C++ `PartitionedMesh` and `Triangle` objects and calculate coverage
      * using them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeTriangleCoverage(
+    @UsedByNative
+    external fun partitionedMeshTriangleCoverage(
         nativeAddress: Long,
         triangleP0X: Float,
         triangleP0Y: Float,
@@ -585,11 +576,11 @@ private object ModeledShapeNative {
     ): Float
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Triangle` objects and calculate coverage
+     * JNI method to construct C++ `PartitionedMesh` and `Triangle` objects and calculate coverage
      * using them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeBoxCoverage(
+    @UsedByNative
+    external fun partitionedMeshBoxCoverage(
         nativeAddress: Long,
         boxXMin: Float,
         boxYMin: Float,
@@ -604,11 +595,11 @@ private object ModeledShapeNative {
     ): Float
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Quad` objects and calculate coverage using
+     * JNI method to construct C++ `PartitionedMesh` and `Quad` objects and calculate coverage using
      * them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeParallelogramCoverage(
+    @UsedByNative
+    external fun partitionedMeshParallelogramCoverage(
         nativeAddress: Long,
         parallelogramCenterX: Float,
         parallelogramCenterY: Float,
@@ -624,9 +615,11 @@ private object ModeledShapeNative {
         parallelogramToThisTransformF: Float,
     ): Float
 
-    /** JNI method to construct C++ two `ModeledShape` objects and calculate coverage using them. */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeModeledShapeCoverage(
+    /**
+     * JNI method to construct C++ two `PartitionedMesh` objects and calculate coverage using them.
+     */
+    @UsedByNative
+    external fun partitionedMeshPartitionedMeshCoverage(
         thisShapeNativeAddress: Long,
         otherShapeNativeAddress: Long,
         otherShapeToThisTransformA: Float,
@@ -638,11 +631,11 @@ private object ModeledShapeNative {
     ): Float
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Triangle` objects and call native
+     * JNI method to construct C++ `PartitionedMesh` and `Triangle` objects and call native
      * `CoverageIsGreaterThan` on them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeTriangleCoverageIsGreaterThan(
+    @UsedByNative
+    external fun partitionedMeshTriangleCoverageIsGreaterThan(
         nativeAddress: Long,
         triangleP0X: Float,
         triangleP0Y: Float,
@@ -660,11 +653,11 @@ private object ModeledShapeNative {
     ): Boolean
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Rect` objects and call native
+     * JNI method to construct C++ `PartitionedMesh` and `Rect` objects and call native
      * `CoverageIsGreaterThan` on them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeBoxCoverageIsGreaterThan(
+    @UsedByNative
+    external fun partitionedMeshBoxCoverageIsGreaterThan(
         nativeAddress: Long,
         boxXMin: Float,
         boxYMin: Float,
@@ -680,11 +673,11 @@ private object ModeledShapeNative {
     ): Boolean
 
     /**
-     * JNI method to construct C++ `ModeledShape` and `Quad` objects and call native
+     * JNI method to construct C++ `PartitionedMesh` and `Quad` objects and call native
      * `CoverageIsGreaterThan` on them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeParallelogramCoverageIsGreaterThan(
+    @UsedByNative
+    external fun partitionedMeshParallelogramCoverageIsGreaterThan(
         nativeAddress: Long,
         parallelogramCenterX: Float,
         parallelogramCenterY: Float,
@@ -702,11 +695,11 @@ private object ModeledShapeNative {
     ): Boolean
 
     /**
-     * JNI method to construct two C++ `ModeledShape` objects and call native
+     * JNI method to construct two C++ `PartitionedMesh` objects and call native
      * `CoverageIsGreaterThan` on them.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
-    external fun modeledShapeModeledShapeCoverageIsGreaterThan(
+    @UsedByNative
+    external fun partitionedMeshPartitionedMeshCoverageIsGreaterThan(
         thisShapeNativeAddress: Long,
         otherShapeNativeAddress: Long,
         coverageThreshold: Float,
@@ -718,11 +711,7 @@ private object ModeledShapeNative {
         otherShapeToThisTransformF: Float,
     ): Boolean
 
-    external fun initializeSpatialIndex(
-        nativeAddress: Long
-    ) // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun initializeSpatialIndex(nativeAddress: Long)
 
-    external fun isSpatialIndexInitialized(
-        nativeAddress: Long
-    ): Boolean // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative external fun isSpatialIndexInitialized(nativeAddress: Long): Boolean
 }

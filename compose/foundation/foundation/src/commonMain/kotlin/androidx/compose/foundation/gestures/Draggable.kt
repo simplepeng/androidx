@@ -16,6 +16,7 @@
 
 package androidx.compose.foundation.gestures
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.gestures.DragEvent.DragCancelled
@@ -38,17 +39,15 @@ import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
-import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DelegatingNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
-import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.platform.InspectorInfo
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Velocity
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
@@ -306,12 +305,14 @@ internal class DraggableNode(
 
     override fun onDragStarted(startedPosition: Offset) {
         if (!isAttached || onDragStarted == NoOpOnDragStarted) return
-        coroutineScope.launch { this@DraggableNode.onDragStarted(this, startedPosition) }
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            this@DraggableNode.onDragStarted(this, startedPosition)
+        }
     }
 
     override fun onDragStopped(velocity: Velocity) {
         if (!isAttached || onDragStopped == NoOpOnDragStopped) return
-        coroutineScope.launch {
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             this@DraggableNode.onDragStopped(this, velocity.reverseIfNeeded().toFloat(orientation))
         }
     }
@@ -361,7 +362,7 @@ internal abstract class DragGestureNode(
     enabled: Boolean,
     interactionSource: MutableInteractionSource?,
     private var orientationLock: Orientation?
-) : DelegatingNode(), PointerInputModifierNode, CompositionLocalConsumerModifierNode {
+) : DelegatingNode(), PointerInputModifierNode {
 
     protected var canDrag = canDrag
         private set
@@ -457,6 +458,7 @@ internal abstract class DragGestureNode(
         pointerInputNode?.onPointerEvent(pointerEvent, pass, bounds)
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     private fun initializePointerInputNode(): SuspendingPointerInputModifierNode {
         return SuspendingPointerInputModifierNode {
             // re-create tracker when pointer input block restarts. This lazily creates the tracker
@@ -488,7 +490,7 @@ internal abstract class DragGestureNode(
 
             val onDragEnd: (change: PointerInputChange) -> Unit = { upEvent ->
                 velocityTracker.addPointerInputChange(upEvent)
-                val maximumVelocity = currentValueOf(LocalViewConfiguration).maximumFlingVelocity
+                val maximumVelocity = viewConfiguration.maximumFlingVelocity
                 val velocity =
                     velocityTracker.calculateVelocity(Velocity(maximumVelocity, maximumVelocity))
                 velocityTracker.resetTracking()

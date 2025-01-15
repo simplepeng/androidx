@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSizeIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -48,6 +49,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -58,6 +61,7 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -107,12 +111,7 @@ import kotlin.math.sqrt
  * @param modifier Modifier to be applied to the button. When animating the button to appear/
  *   disappear from the screen, a Modifier.height can be used to change the height of the component,
  *   but that won't change the space available for the content (though it may be scaled)
- * @param buttonHeight Defines the base size of the button, see the 4 standard sizes specified in
- *   [ButtonDefaults]. This is used to determine the size constraints passed on to the content, and
- *   the size of the edge button if no height Modifier is specified. Note that if a height Modifier
- *   is specified for the EdgeButton, that will determine the size of the container, and the content
- *   may be scaled and or have alpha applied to fit. The default is
- *   [ButtonDefaults.EdgeButtonHeightSmall]
+ * @param buttonSize Defines the size of the button. See [EdgeButtonSize].
  * @param enabled Controls the enabled state of the button. When `false`, this button will not be
  *   clickable
  * @param colors [ButtonColors] that will be used to resolve the background and content color for
@@ -127,10 +126,10 @@ import kotlin.math.sqrt
  */
 // TODO(b/261838497) Add Material3 UX guidance links
 @Composable
-fun EdgeButton(
+public fun EdgeButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    buttonHeight: Dp = ButtonDefaults.EdgeButtonHeightSmall,
+    buttonSize: EdgeButtonSize = EdgeButtonSize.Small,
     enabled: Boolean = true,
     colors: ButtonColors = ButtonDefaults.buttonColors(),
     border: BorderStroke? = null,
@@ -142,30 +141,33 @@ fun EdgeButton(
     val density = LocalDensity.current
     val screenWidthDp = screenWidthDp().dp
 
+    val preferredHeight = buttonSize.maximumHeight
+
     val contentShapeHelper =
-        remember(buttonHeight) {
+        remember(preferredHeight) {
             ShapeHelper(density).apply {
                 // Compute the inner size using only the screen size and the buttonSize parameter
-                val size = with(density) { DpSize(screenWidthDp, buttonHeight).toSize() }
+                val size = with(density) { DpSize(screenWidthDp, preferredHeight).toSize() }
                 update(size)
             }
         }
 
-    val containerShapeHelper = remember { ShapeHelper(density) }
-    val shape = EdgeButtonShape(containerShapeHelper)
+    val containerSize = remember { mutableStateOf(Size.Zero) }
+    val containerShapeHelper = remember {
+        derivedStateOf { ShapeHelper(density).apply { update(containerSize.value) } }
+    }
+    val shape = remember { derivedStateOf { EdgeButtonShape(containerShapeHelper.value) } }
 
     val containerFadeStartPx = with(LocalDensity.current) { CONTAINER_FADE_START_DP.toPx() }
     val containerFadeEndPx = with(LocalDensity.current) { CONTAINER_FADE_END_DP.toPx() }
     val contentFadeStartPx = with(LocalDensity.current) { CONTENT_FADE_START_DP.toPx() }
     val contentFadeEndPx = with(LocalDensity.current) { CONTENT_FADE_END_DP.toPx() }
 
-    val borderModifier =
-        if (border != null) Modifier.border(border = border, shape = shape) else Modifier
     Row(
         horizontalArrangement = Arrangement.Center,
         modifier =
             modifier
-                .padding(vertical = VERTICAL_PADDING)
+                .padding(vertical = EdgeButtonVerticalPadding)
                 .layout { measurable, constraints ->
                     // Compute the actual size of the button, and save it for later.
                     // We take the max width available, and the height is determined by the
@@ -178,13 +180,13 @@ fun EdgeButton(
                         } else {
                             screenWidthDp.roundToPx()
                         }
-                    val buttonHeightPx = with(density) { buttonHeight.roundToPx() }
+                    val buttonHeightPx = with(density) { preferredHeight.roundToPx() }
                     val size =
                         IntSize(
                             buttonWidthPx,
                             buttonHeightPx.coerceIn(constraints.minHeight, constraints.maxHeight)
                         )
-                    containerShapeHelper.update(size.toSize())
+                    containerSize.value = size.toSize()
 
                     val placeable =
                         measurable.measure(
@@ -194,7 +196,7 @@ fun EdgeButton(
                 }
                 .graphicsLayer {
                     // Container fades when button height goes from 18dp to 0dp
-                    val height = (containerShapeHelper.lastSize.value?.height ?: 0f)
+                    val height = containerSize.value.height
                     alpha =
                         easing
                             .transform(
@@ -203,8 +205,12 @@ fun EdgeButton(
                             )
                             .coerceIn(0f, 1f)
                 }
-                .then(borderModifier)
-                .clip(shape = shape)
+                .then(
+                    // BorderModifier
+                    if (border != null) Modifier.border(border = border, shape = shape.value)
+                    else Modifier
+                )
+                .clip(shape = shape.value)
                 .paint(
                     painter = colors.containerPainter(enabled = enabled),
                     contentScale = ContentScale.Crop
@@ -216,7 +222,7 @@ fun EdgeButton(
                     compositingStrategy = CompositingStrategy.Offscreen
                 }
                 .drawWithContent {
-                    val height = (containerShapeHelper.lastSize.value?.height ?: 0f)
+                    val height = containerSize.value.height
 
                     val alpha =
                         easing
@@ -248,8 +254,8 @@ fun EdgeButton(
                     indication = ripple(),
                     interactionSource = interactionSource,
                 )
-                .sizeAndOffset { containerShapeHelper.contentWindow }
-                .scaleAndAlignContent()
+                .sizeAndOffset { containerShapeHelper.value.contentWindow }
+                .scaleAndAlignContent(buttonSize)
                 // Limit the content size to the expected width for the button size.
                 .requiredSizeIn(
                     maxWidth = contentShapeHelper.contentWidthDp(),
@@ -257,7 +263,7 @@ fun EdgeButton(
         content =
             provideScopeContent(
                 colors.contentColor(enabled = enabled),
-                MaterialTheme.typography.labelMedium,
+                MaterialTheme.typography.labelMedium.copy(textMotion = TextMotion.Animated),
                 textConfiguration =
                     TextConfiguration(
                         TextAlign.Center,
@@ -267,6 +273,70 @@ fun EdgeButton(
                 content
             )
     )
+}
+
+/**
+ * Size of the [EdgeButton]. This in turns determines the full shape of the edge button, including
+ * width, height, rounding radius for the top corners, the ellipsis size for the bottom part of the
+ * shape and the space available for the content.
+ */
+@JvmInline
+public value class EdgeButtonSize internal constructor(internal val maximumHeight: Dp) {
+    /** Size of the Edge button surrounded by default paddings. */
+    internal fun maximumHeightPlusPadding() = maximumHeight + VERTICAL_PADDING * 2
+
+    /** Inner padding inside [EdgeButton]. */
+    internal fun verticalContentPadding() =
+        when (this) {
+            ExtraSmall -> Pair(10.dp, 12.dp)
+            Small -> Pair(8.dp, 12.dp)
+            Medium -> Pair(14.dp, 20.dp)
+            Large -> Pair(18.dp, 22.dp)
+            else -> Pair(14.dp, 20.dp)
+        }
+
+    public companion object {
+        /** The Size to be applied for an extra small [EdgeButton]. */
+        public val ExtraSmall: EdgeButtonSize = EdgeButtonSize(46.dp)
+
+        /** The Size to be applied for an small [EdgeButton]. */
+        public val Small: EdgeButtonSize = EdgeButtonSize(56.dp)
+
+        /** The Size to be applied for an medium [EdgeButton]. */
+        public val Medium: EdgeButtonSize = EdgeButtonSize(70.dp)
+
+        /** The Size to be applied for an large [EdgeButton]. */
+        public val Large: EdgeButtonSize = EdgeButtonSize(96.dp)
+    }
+}
+
+/** Contains the default values used by [EdgeButton]. */
+public object EdgeButtonDefaults {
+    /** The recommended icon size when used with [EdgeButtonSize.ExtraSmall]. */
+    public val ExtraSmallIconSize: Dp = 24.dp
+
+    /** The recommended icon size when used with [EdgeButtonSize.Small]. */
+    public val SmallIconSize: Dp = 32.dp
+
+    /** The recommended icon size when used with [EdgeButtonSize.Medium]. */
+    public val MediumIconSize: Dp = 32.dp
+
+    /** The recommended icon size when used with [EdgeButtonSize.Large]. */
+    public val LargeIconSize: Dp = 36.dp
+
+    /**
+     * Recommended icon size for a given edge button size.
+     *
+     * @param edgeButtonSize The size of the edge button
+     */
+    public fun iconSizeFor(edgeButtonSize: EdgeButtonSize): Dp =
+        when (edgeButtonSize) {
+            EdgeButtonSize.ExtraSmall -> ExtraSmallIconSize
+            EdgeButtonSize.Small -> SmallIconSize
+            EdgeButtonSize.Medium -> MediumIconSize
+            EdgeButtonSize.Large -> LargeIconSize
+            else -> MediumIconSize
+        }
 }
 
 private fun Modifier.sizeAndOffset(rectFn: (Constraints) -> Rect) =
@@ -294,8 +364,8 @@ private fun Modifier.sizeAndOffset(rectFn: (Constraints) -> Rect) =
 
 internal class ShapeHelper(private val density: Density) {
     private val extraSmallHeightPx =
-        with(density) { ButtonDefaults.EdgeButtonHeightExtraSmall.toPx() }
-    private val bottomPaddingPx = with(density) { VERTICAL_PADDING.toPx() }
+        with(density) { EdgeButtonSize.ExtraSmall.maximumHeight.toPx() }
+    private val bottomPaddingPx = with(density) { EdgeButtonVerticalPadding.toPx() }
     private val extraSmallEllipsisHeightPx = with(density) { EXTRA_SMALL_ELLIPSIS_HEIGHT.toPx() }
     private val targetSidePadding = with(density) { TARGET_SIDE_PADDING.toPx() }
 
@@ -402,44 +472,55 @@ private fun sqr(x: Float) = x * x
 
 // Scales the content if it doesn't fit horizontally, horizontally center if there is room.
 // Vertically centers the content if there is room, otherwise aligns to the top.
-private fun Modifier.scaleAndAlignContent() = this.then(ScaleAndAlignContentElement())
+private fun Modifier.scaleAndAlignContent(buttonSize: EdgeButtonSize) =
+    this.then(ScaleAndAlignContentElement(buttonSize))
 
-private class ScaleAndAlignContentElement : ModifierNodeElement<ScaleAndAlignContentNode>() {
-    override fun create(): ScaleAndAlignContentNode = ScaleAndAlignContentNode()
+private class ScaleAndAlignContentElement(val buttonSize: EdgeButtonSize) :
+    ModifierNodeElement<ScaleAndAlignContentNode>() {
+    override fun create(): ScaleAndAlignContentNode = ScaleAndAlignContentNode(buttonSize)
 
-    override fun update(node: ScaleAndAlignContentNode) {}
+    override fun update(node: ScaleAndAlignContentNode) {
+        node.buttonSize = buttonSize
+    }
 
     override fun InspectorInfo.inspectableProperties() {
         name = "ScaleAndAlignContentElement"
+        properties["buttonSize"] = buttonSize
     }
 
     // All instances are equivalent
-    override fun equals(other: Any?) = other is ScaleAndAlignContentElement
+    override fun equals(other: Any?) =
+        other is ScaleAndAlignContentElement && buttonSize == other.buttonSize
 
-    override fun hashCode() = 42
+    override fun hashCode() = buttonSize.hashCode()
 }
 
-private class ScaleAndAlignContentNode : LayoutModifierNode, Modifier.Node() {
+private class ScaleAndAlignContentNode(var buttonSize: EdgeButtonSize) :
+    LayoutModifierNode, Modifier.Node() {
     override fun MeasureScope.measure(
         measurable: Measurable,
         constraints: Constraints
     ): MeasureResult {
         val placeable = measurable.measure(Constraints())
 
-        val topPadding = INTERNAL_TOP_PADDING.roundToPx()
-
         val wrapperWidth = placeable.width.coerceIn(constraints.minWidth, constraints.maxWidth)
         val wrapperHeight = placeable.height.coerceIn(constraints.minHeight, constraints.maxHeight)
 
         val scale = (wrapperWidth.toFloat() / placeable.width.coerceAtLeast(1)).coerceAtMost(1f)
 
+        val verticalPadding = buttonSize.verticalContentPadding()
+        val topPadding = verticalPadding.top().roundToPx()
+        val bottomPadding = verticalPadding.bottom().roundToPx()
+
         return layout(wrapperWidth, wrapperHeight) {
-            // If there is enough vertical space, we align like 'Center', otherwise like 'TopCenter'
+            // If there is enough vertical space, we align like 'Center', with a slight vertical
+            // offset. Otherwise like 'TopCenter'
             val position =
                 IntOffset(
                     x = (wrapperWidth - placeable.width) / 2, // Always center horizontally
                     y =
-                        ((wrapperHeight - placeable.height * scale) / 2)
+                        ((wrapperHeight - placeable.height * scale + topPadding - bottomPadding) /
+                                2)
                             .roundToInt()
                             .coerceAtLeast(topPadding)
                 )
@@ -451,7 +532,20 @@ private class ScaleAndAlignContentNode : LayoutModifierNode, Modifier.Node() {
             }
         }
     }
+
+    override fun IntrinsicMeasureScope.maxIntrinsicHeight(
+        measurable: IntrinsicMeasurable,
+        width: Int
+    ): Int = buttonSize.maximumHeightPlusPadding().roundToPx()
 }
+
+// Padding around the Edge Button on it's top and bottom.
+internal val EdgeButtonVerticalPadding = 3.dp
+
+// Syntactic sugar for Pair<Dp, Dp> when used to extra values for top and bottom vertical padding.
+private fun Pair<Dp, Dp>.top() = first
+
+private fun Pair<Dp, Dp>.bottom() = second
 
 // Sizes at which the container will start and end fading away.
 private val CONTAINER_FADE_START_DP = 30.dp
@@ -474,6 +568,3 @@ private val TARGET_SIDE_PADDING = 20.dp
 
 // Padding around the Edge Button on it's top and bottom.
 private val VERTICAL_PADDING = 3.dp
-
-// Padding between the top edge of the button and the content.
-private val INTERNAL_TOP_PADDING = 6.dp

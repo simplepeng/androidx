@@ -46,12 +46,13 @@ dependencies {
 }
 
 android {
-    namespace "androidx.camera.viewfinder.core"
+    namespace = "androidx.camera.viewfinder.core"
 }
 
 androidx {
     name = "Camera Viewfinder Core"
     type = LibraryType.PUBLISHED_LIBRARY
+    samples(project(":camera:viewfinder:viewfinder-core:viewfinder-core-samples"))
     inceptionYear = "2023"
     description = "Core dependencies for Viewfinder"
     legacyDisableKotlinStrictApiMode = true

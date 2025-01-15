@@ -80,11 +80,17 @@ internal value class Strings(@StringRes val value: Int) {
         inline val PickerNextButtonContentDescription
             get() = Strings(R.string.wear_m3c_picker_next_button_content_description)
 
-        inline val SliderDecreaseButtonContentDescription
+        inline val SliderDecreaseIconContentDescription
             get() = Strings(R.string.wear_m3c_slider_decrease_content_description)
 
-        inline val SliderIncreaseButtonContentDescription
+        inline val SliderIncreaseIconContentDescription
             get() = Strings(R.string.wear_m3c_slider_increase_content_description)
+
+        inline val AlertDialogContentDescriptionConfirmButton
+            get() = Strings(R.string.wear_m3c_alert_dialog_content_description_confirm_button)
+
+        inline val AlertDialogContentDescriptionDismissButton
+            get() = Strings(R.string.wear_m3c_alert_dialog_content_description_dismiss_button)
     }
 }
 

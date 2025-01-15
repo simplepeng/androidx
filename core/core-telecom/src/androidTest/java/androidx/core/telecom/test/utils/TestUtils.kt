@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -82,14 +83,15 @@ object TestUtils {
     private const val CALLBACK_FAILED_EXCEPTION_MSG =
         "callback failed to be completed in the lambda function"
     // non-primitive constants
-    val TEST_PHONE_NUMBER_9001: Uri = Uri.parse("tel:6506959001")
-    val TEST_PHONE_NUMBER_8985: Uri = Uri.parse("tel:6506958985")
+    val CUSTOM_TEST_APP_SCHEME = "CoreTelecomUnitTestScheme:"
+    val TEST_PHONE_NUMBER = "6506959001"
+    val TEST_ADDRESS: Uri = Uri.parse(CUSTOM_TEST_APP_SCHEME + TEST_PHONE_NUMBER)
 
     // Define the minimal set of properties to start an outgoing call
     val OUTGOING_CALL_ATTRIBUTES =
         CallAttributesCompat(
             OUTGOING_NAME,
-            TEST_PHONE_NUMBER_8985,
+            TEST_ADDRESS,
             CallAttributesCompat.DIRECTION_OUTGOING,
             CallAttributesCompat.CALL_TYPE_AUDIO_CALL,
             ALL_CALL_CAPABILITIES
@@ -98,7 +100,7 @@ object TestUtils {
     val OUTGOING_NO_HOLD_CAP_CALL_ATTRIBUTES =
         CallAttributesCompat(
             OUTGOING_NAME,
-            TEST_PHONE_NUMBER_8985,
+            TEST_ADDRESS,
             CallAttributesCompat.DIRECTION_OUTGOING,
             CallAttributesCompat.CALL_TYPE_AUDIO_CALL,
             CallAttributesCompat.SUPPORTS_STREAM
@@ -108,7 +110,7 @@ object TestUtils {
     val INCOMING_CALL_ATTRIBUTES =
         CallAttributesCompat(
             INCOMING_NAME,
-            TEST_PHONE_NUMBER_8985,
+            TEST_ADDRESS,
             CallAttributesCompat.DIRECTION_INCOMING,
             ALL_CALL_CAPABILITIES
         )
@@ -223,14 +225,9 @@ object TestUtils {
 
         val attributes: CallAttributesCompat =
             if (callType != null) {
-                CallAttributesCompat(
-                    TEST_CALL_ATTRIB_NAME,
-                    TEST_PHONE_NUMBER_9001,
-                    callDirection,
-                    callType
-                )
+                CallAttributesCompat(TEST_CALL_ATTRIB_NAME, TEST_ADDRESS, callDirection, callType)
             } else {
-                CallAttributesCompat(TEST_CALL_ATTRIB_NAME, TEST_PHONE_NUMBER_9001, callDirection)
+                CallAttributesCompat(TEST_CALL_ATTRIB_NAME, TEST_ADDRESS, callDirection)
             }
 
         attributes.mHandle = phoneAccountHandle
@@ -414,6 +411,16 @@ class TestCallCallbackListener(private val scope: CoroutineScope) : ITestAppCont
     private val isLocallySilencedFlow: MutableSharedFlow<Pair<String, Boolean>> =
         MutableStateFlow(Pair("", false))
     private val callAddedFlow: MutableSharedFlow<Pair<Int, String>> = MutableSharedFlow(replay = 1)
+    private val isMutedFlow: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    companion object {
+        private val TAG: String = TestCallCallbackListener::class.java.simpleName.toString()
+    }
+
+    override fun onGlobalMuteStateChanged(isMuted: Boolean) {
+        Log.i(TAG, "onGlobalMuteStateChanged: isMuted: $isMuted")
+        scope.launch { isMutedFlow.emit(isMuted) }
+    }
 
     override fun onCallAdded(requestId: Int, callId: String?) {
         if (callId == null) return
@@ -457,6 +464,21 @@ class TestCallCallbackListener(private val scope: CoroutineScope) : ITestAppCont
                     .first()
             }
         assertEquals("<LOCAL CALL SILENCE> never received", expectedState, result?.second)
+    }
+
+    suspend fun waitForGlobalMuteState(isMuted: Boolean, id: String = "") {
+        Log.i(TAG, "waitForGlobalMuteState: v=[$isMuted], id=[$id]")
+        val result =
+            withTimeoutOrNull(5000) {
+                isMutedFlow
+                    .filter {
+                        Log.i(TAG, "it=[$isMuted], isMuted=[$isMuted]")
+                        it == isMuted
+                    }
+                    .firstOrNull()
+            }
+        Log.i(TAG, "asserting id=[$id], result=$result")
+        assertEquals("Global Mute State {$id} never reached the expected state", isMuted, result)
     }
 
     suspend fun waitForKickParticipant(callId: String, expectedParticipant: Participant?) {

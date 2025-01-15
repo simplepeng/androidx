@@ -18,6 +18,8 @@ package androidx.ink.geometry
 
 import androidx.annotation.FloatRange
 import androidx.annotation.RestrictTo
+import androidx.ink.nativeloader.UsedByNative
+import kotlin.math.atan2
 
 /**
  * Mutable parallelogram (i.e. a quadrilateral with parallel sides), defined by its [center],
@@ -67,9 +69,7 @@ private constructor(
     public constructor() : this(MutableVec(), 0f, 0f, Angle.ZERO, 0f)
 
     @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP) // NonPublicApi
-
-    // TODO: b/355248266 - @UsedByNative("parallelogram_jni_helper.cc") must go in Proguard config
-    // file instead.
+    @UsedByNative
     public fun setCenterDimensionsRotationAndShear(
         centerX: Float,
         centerY: Float,
@@ -89,6 +89,18 @@ private constructor(
         }
     }
 
+    /** Fills this [MutableParallelogram] with the same values contained in [input]. */
+    @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP) // PublicApiNotReadyForJetpackReview
+    public fun populateFrom(input: Parallelogram): MutableParallelogram {
+        center.x = input.center.x
+        center.y = input.center.y
+        width = input.width
+        height = input.height
+        rotation = input.rotation
+        shearFactor = input.shearFactor
+        return this
+    }
+
     override fun equals(other: Any?): Boolean =
         other === this || (other is Parallelogram && Parallelogram.areEquivalent(this, other))
 
@@ -100,7 +112,7 @@ private constructor(
     public companion object {
 
         /**
-         * Constructs an [MutableParallelogram] with a given [center], [width] and [height]. The
+         * Constructs a [MutableParallelogram] with a given [center], [width] and [height]. The
          * resulting [Parallelogram] has zero [rotation] and [shearFactor]. If the [width] is less
          * than zero, the [Parallelogram] will be normalized.
          */
@@ -115,7 +127,7 @@ private constructor(
             }
 
         /**
-         * Constructs an [MutableParallelogram] with a given [center], [width], [height] and
+         * Constructs a [MutableParallelogram] with a given [center], [width], [height] and
          * [rotation]. The resulting [Parallelogram] has zero [shearFactor]. If the [width] is less
          * than zero or if the [rotation] is not in the range [0, 2π), the [Parallelogram] will be
          * normalized.
@@ -132,7 +144,7 @@ private constructor(
             }
 
         /**
-         * Constructs an [MutableParallelogram] with a given [center], [width], [height], [rotation]
+         * Constructs a [MutableParallelogram] with a given [center], [width], [height], [rotation]
          * and [shearFactor]. If the [width] is less than zero or if the [rotation] is not in the
          * range [0, 2π), the [Parallelogram] will be normalized.
          */
@@ -146,6 +158,32 @@ private constructor(
         ): MutableParallelogram =
             normalizeAndRun(width, height, rotation) { w: Float, h: Float, r: Float ->
                 MutableParallelogram(center, w, h, r, shearFactor)
+            }
+
+        /**
+         * Constructs a [MutableParallelogram] that is aligned with the [segment] and whose bounds
+         * are [padding] units away from the segment and whose [shear] is zero.
+         */
+        @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP) // PublicApiNotReadyForJetpackReview
+        @JvmStatic
+        public fun fromSegmentAndPadding(segment: Segment, padding: Float): MutableParallelogram =
+            normalizeAndRun(
+                width = segment.computeLength() + 2 * padding,
+                height = 2 * padding,
+                rotation =
+                    atan2((segment.start.y - segment.end.y), (segment.start.x - segment.end.x)),
+            ) { w: Float, h: Float, r: Float ->
+                MutableParallelogram(
+                    center =
+                        MutableVec(
+                            segment.end.x / 2f + segment.start.x / 2f,
+                            segment.end.y / 2f + segment.start.y / 2f,
+                        ),
+                    width = w,
+                    height = h,
+                    rotation = r,
+                    shearFactor = 0f,
+                )
             }
     }
 }

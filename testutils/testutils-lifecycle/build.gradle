@@ -23,23 +23,27 @@
  */
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
-import org.jetbrains.kotlin.gradle.dsl.ExplicitApiMode
 
 plugins {
     id("AndroidXPlugin")
-    id("com.android.library")
 }
 
 androidXMultiplatform {
-    android()
+    androidLibrary {
+        namespace = "androidx.testutils.lifecycle"
+        withAndroidTestOnDeviceBuilder {
+            it.compilationName = "instrumentedTest"
+            it.defaultSourceSetName = "androidInstrumentedTest"
+            it.sourceSetTreeName = "test"
+        }
+        withAndroidTestOnJvmBuilder {
+            it.defaultSourceSetName = "androidUnitTest"
+        }
+    }
     desktop()
     mac()
     linux()
     ios()
-
-    kotlin {
-        explicitApi = ExplicitApiMode.Strict
-    }
 
     defaultPlatform(PlatformIdentifier.ANDROID)
 
@@ -66,9 +70,6 @@ androidXMultiplatform {
     }
 }
 
-android {
-    namespace "androidx.testutils.lifecycle"
-}
 
 androidx {
     type = LibraryType.INTERNAL_TEST_LIBRARY

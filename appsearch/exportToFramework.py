@@ -179,9 +179,6 @@ class ExportToFramework:
             .replace(
                     'androidx.core.util.ObjectsCompat',
                     'java.util.Objects')
-            .replace(
-                'import androidx.core.os.ParcelCompat',
-                'import android.os.Parcel')
             # Preconditions.checkNotNull is replaced with Objects.requireNonNull. We add both
             # imports and let google-java-format sort out which one is unused.
             .replace(
@@ -195,13 +192,12 @@ class ExportToFramework:
             .replace('<!--@exportToFramework:hide-->', '@hide')
             .replace('@exportToFramework:hide', '@hide')
             .replace('// @exportToFramework:skipFile()', '')
+            .replace('@ExperimentalAppSearchApi', '')
+            .replace('@OptIn(markerClass = ExperimentalAppSearchApi.class)', '')
         )
         contents = re.sub(r'\/\/ @exportToFramework:copyToPath\([^)]+\)', '', contents)
         contents = re.sub(r'@RequiresFeature\([^)]*\)', '', contents, flags=re.DOTALL)
-
-        contents = re.sub(
-                r'ParcelCompat\.readParcelable\(.*?([a-zA-Z.()]+),.*?([a-zA-Z.()]+),.*?([a-zA-Z.()]+)\)',
-                r'\1.readParcelable(\2)', contents, flags=re.DOTALL)
+        contents = re.sub(r'@RequiresOptIn\([^)]+\)', '', contents)
 
         # Jetpack methods have the Async suffix, but framework doesn't. Strip the Async suffix
         # to allow the same documentation to compile for both.
@@ -213,14 +209,17 @@ class ExportToFramework:
     def _TransformTestCode(self, contents):
         contents = (contents
             .replace(
-                    'androidx.appsearch.flags.CheckFlagsRule',
+                    'androidx.appsearch.testutil.flags.CheckFlagsRule',
                     'android.platform.test.flag.junit.CheckFlagsRule')
             .replace(
-                    'androidx.appsearch.flags.DeviceFlagsValueProvider',
+                    'androidx.appsearch.testutil.flags.DeviceFlagsValueProvider',
                     'android.platform.test.flag.junit.DeviceFlagsValueProvider')
             .replace(
-                    'androidx.appsearch.flags.RequiresFlagsEnabled',
+                    'androidx.appsearch.testutil.flags.RequiresFlagsEnabled',
                     'android.platform.test.annotations.RequiresFlagsEnabled')
+            .replace(
+                    'androidx.appsearch.testutil.flags.RequiresFlagsDisabled',
+                    'android.platform.test.annotations.RequiresFlagsDisabled')
             .replace('androidx.appsearch.testutil.', 'android.app.appsearch.testutil.')
             .replace(
                     'package androidx.appsearch.testutil;',

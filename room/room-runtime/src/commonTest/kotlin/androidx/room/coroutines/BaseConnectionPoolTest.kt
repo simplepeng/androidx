@@ -28,7 +28,6 @@ import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.execSQL
-import androidx.sqlite.use
 import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 import kotlin.test.Ignore
@@ -613,8 +612,9 @@ abstract class BaseConnectionPoolTest {
                                     }
                                     .message
                             )
-                            .isEqualTo(
-                                "Error code: 5, message: Timed out attempting to acquire a connection"
+                            .contains(
+                                "Error code: 5, message: Timed out attempting to acquire a " +
+                                    "reader connection"
                             )
                     }
                 coroutineStartedMutex.withLock {

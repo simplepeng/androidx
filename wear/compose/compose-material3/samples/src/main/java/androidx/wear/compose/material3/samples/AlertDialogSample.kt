@@ -30,14 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.AlertDialog
 import androidx.wear.compose.material3.AlertDialogDefaults
 import androidx.wear.compose.material3.FilledTonalButton
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.SwitchButton
 import androidx.wear.compose.material3.Text
 
+@Preview
 @Sampled
 @Composable
 fun AlertDialogWithConfirmAndDismissSample() {
@@ -51,7 +54,7 @@ fun AlertDialogWithConfirmAndDismissSample() {
         )
     }
     AlertDialog(
-        show = showDialog,
+        visible = showDialog,
         onDismissRequest = { showDialog = false },
         icon = {
             Icon(
@@ -82,9 +85,10 @@ fun AlertDialogWithConfirmAndDismissSample() {
     )
 }
 
+@Preview
 @Sampled
 @Composable
-fun AlertDialogWithBottomButtonSample() {
+fun AlertDialogWithEdgeButtonSample() {
     var showDialog by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -96,7 +100,7 @@ fun AlertDialogWithBottomButtonSample() {
     }
 
     AlertDialog(
-        show = showDialog,
+        visible = showDialog,
         onDismissRequest = { showDialog = false },
         icon = {
             Icon(
@@ -107,8 +111,8 @@ fun AlertDialogWithBottomButtonSample() {
             )
         },
         title = { Text("Mobile network is not currently available") },
-        bottomButton = {
-            AlertDialogDefaults.BottomButton(
+        edgeButton = {
+            AlertDialogDefaults.EdgeButton(
                 onClick = {
                     // Perform confirm action here
                     showDialog = false
@@ -118,10 +122,13 @@ fun AlertDialogWithBottomButtonSample() {
     )
 }
 
+@Preview
 @Sampled
 @Composable
 fun AlertDialogWithContentGroupsSample() {
     var showDialog by remember { mutableStateOf(false) }
+    var weatherEnabled by remember { mutableStateOf(false) }
+    var calendarEnabled by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         FilledTonalButton(
@@ -131,12 +138,12 @@ fun AlertDialogWithContentGroupsSample() {
         )
     }
     AlertDialog(
-        show = showDialog,
+        visible = showDialog,
         onDismissRequest = { showDialog = false },
         title = { Text("Share your location") },
         text = { Text(" The following apps have asked you to share your location") },
-        bottomButton = {
-            AlertDialogDefaults.BottomButton(
+        edgeButton = {
+            AlertDialogDefaults.EdgeButton(
                 onClick = {
                     // Perform confirm action here
                     showDialog = false
@@ -147,16 +154,18 @@ fun AlertDialogWithContentGroupsSample() {
         }
     ) {
         item {
-            FilledTonalButton(
+            SwitchButton(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = {},
+                checked = weatherEnabled,
+                onCheckedChange = { weatherEnabled = it },
                 label = { Text("Weather") }
             )
         }
         item {
-            FilledTonalButton(
+            SwitchButton(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = {},
+                checked = calendarEnabled,
+                onCheckedChange = { calendarEnabled = it },
                 label = { Text("Calendar") }
             )
         }

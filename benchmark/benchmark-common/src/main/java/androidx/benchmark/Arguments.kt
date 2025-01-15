@@ -41,12 +41,23 @@ object Arguments {
      * Note that when StartupMode.COLD is used, additional work must be performed during target app
      * startup to initialize tracing.
      */
-    private val _perfettoSdkTracingEnable: Boolean
     val perfettoSdkTracingEnable: Boolean
         get() = perfettoSdkTracingEnableOverride ?: _perfettoSdkTracingEnable
 
-    /** Allows tests to override whether full tracing is enabled */
+    private val _perfettoSdkTracingEnable: Boolean
     @VisibleForTesting var perfettoSdkTracingEnableOverride: Boolean? = null
+
+    /**
+     * Base URL for help articles for Startup Insights.
+     *
+     * This property should only be used while the Startup Insights feature is under development. It
+     * can be overridden for testing purposes using [startupInsightsHelpUrlBaseOverride].
+     */
+    val startupInsightsHelpUrlBase: String?
+        get() = startupInsightsHelpUrlBaseOverride ?: _startupInsightsHelpUrlBase
+
+    private val _startupInsightsHelpUrlBase: String?
+    @VisibleForTesting var startupInsightsHelpUrlBaseOverride: String? = null
 
     val enabledRules: Set<RuleType>
 
@@ -71,14 +82,17 @@ object Arguments {
     internal val iterations: Int?
     internal val profiler: Profiler?
     internal val profilerDefault: Boolean
-    internal val profilerSampleFrequency: Int
+    internal val profilerSampleFrequencyHz: Int
     internal val profilerSampleDurationSeconds: Long
     internal val profilerSkipWhenDurationRisksAnr: Boolean
     internal val profilerPerfCompareEnable: Boolean
     internal val thermalThrottleSleepDurationSeconds: Long
-    private val cpuEventCounterEnable: Boolean
+    val cpuEventCounterEnable: Boolean // non-internal, checked in CpuEventCounterBenchmark
     internal val cpuEventCounterMask: Int
-    val runOnMainDeadlineSeconds: Long // non-internal, used in BenchmarkRule
+    internal val requireAot: Boolean
+    internal val requireJitDisabledIfRooted: Boolean
+    val throwOnMainThreadMeasureRepeated: Boolean // non-internal, used in BenchmarkRule
+    val measureRepeatedOnMainThrowOnDeadline: Boolean // non-internal, used in BenchmarkRule
 
     internal var error: String? = null
     internal val additionalTestOutputDir: String?
@@ -175,6 +189,9 @@ object Arguments {
                 ?: arguments.getBenchmarkArgument("fullTracing.enable")?.toBoolean()
                 ?: false
 
+        _startupInsightsHelpUrlBase =
+            arguments.getBenchmarkArgument("startupInsights.helpUrlBase", defaultValue = null)
+
         // Transform comma-delimited list into set of suppressed errors
         // E.g. "DEBUGGABLE, UNLOCKED" -> setOf("DEBUGGABLE", "UNLOCKED")
         suppressedErrors =
@@ -229,7 +246,7 @@ object Arguments {
         val profilerState = arguments.getProfiler(outputEnable)
         profiler = profilerState.first
         profilerDefault = profilerState.second
-        profilerSampleFrequency =
+        profilerSampleFrequencyHz =
             arguments.getBenchmarkArgument("profiling.sampleFrequency")?.ifBlank { null }?.toInt()
                 ?: 1000
         profilerSampleDurationSeconds =
@@ -246,16 +263,40 @@ object Arguments {
             Log.d(
                 BenchmarkState.TAG,
                 "Profiler ${profiler.javaClass.simpleName}, freq " +
-                    "$profilerSampleFrequency, duration $profilerSampleDurationSeconds"
+                    "$profilerSampleFrequencyHz, duration $profilerSampleDurationSeconds"
             )
         }
 
-        cpuEventCounterEnable =
+        val cpuEventsDesired =
             arguments.getBenchmarkArgument("cpuEventCounter.enable")?.toBoolean() ?: false
+        cpuEventCounterEnable =
+            when {
+                !cpuEventsDesired -> {
+                    false // not attempting to use
+                }
+                dryRunMode -> {
+                    Log.d(
+                        BenchmarkState.TAG,
+                        "Ignoring request for cpuEventCounter due to dryRunMode=true"
+                    )
+                    false
+                }
+                !DeviceInfo.supportsCpuEventCounters -> {
+                    Log.d(
+                        BenchmarkState.TAG,
+                        "Ignoring request for cpuEventCounter due to unrooted device"
+                    )
+                    false
+                }
+                else -> true
+            }
         cpuEventCounterMask =
             if (cpuEventCounterEnable) {
                 arguments
-                    .getBenchmarkArgument("cpuEventCounter.events", "Instructions,CpuCycles")
+                    .getBenchmarkArgument(
+                        "cpuEventCounter.events",
+                        "Instructions,CpuCycles,BranchMisses"
+                    )
                     .split(",")
                     .map { eventName -> CpuEventCounter.Event.valueOf(eventName) }
                     .getFlags()
@@ -291,11 +332,17 @@ object Arguments {
         dropShadersThrowOnFailure =
             arguments.getBenchmarkArgument("dropShaders.throwOnFailure")?.toBoolean() ?: true
 
-        // very relaxed default to start, ideally this would be less than 5 (ANR timeout),
-        // but configurability should help experimenting / narrowing over time
-        runOnMainDeadlineSeconds =
-            arguments.getBenchmarkArgument("runOnMainDeadlineSeconds")?.toLong() ?: 30
-        Log.d(BenchmarkState.TAG, "runOnMainDeadlineSeconds $runOnMainDeadlineSeconds")
+        measureRepeatedOnMainThrowOnDeadline =
+            arguments
+                .getBenchmarkArgument("measureRepeatedOnMainThread.throwOnDeadline")
+                ?.toBoolean() ?: true
+
+        requireAot = arguments.getBenchmarkArgument("requireAot")?.toBoolean() ?: false
+        requireJitDisabledIfRooted =
+            arguments.getBenchmarkArgument("requireJitDisabledIfRooted")?.toBoolean() ?: false
+
+        throwOnMainThreadMeasureRepeated =
+            arguments.getBenchmarkArgument("throwOnMainThreadMeasureRepeated")?.toBoolean() ?: false
 
         if (arguments.getString("orchestratorService") != null) {
             InstrumentationResults.scheduleIdeWarningOnNextReport(

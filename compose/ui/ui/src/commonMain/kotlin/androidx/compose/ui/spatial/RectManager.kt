@@ -16,52 +16,179 @@
 
 package androidx.compose.ui.spatial
 
+import androidx.collection.IntObjectMap
+import androidx.collection.intObjectMapOf
 import androidx.collection.mutableObjectListOf
 import androidx.compose.ui.ComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.currentTimeMillis
 import androidx.compose.ui.geometry.MutableRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.isIdentity
+import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.LayoutNode
 import androidx.compose.ui.node.NodeCoordinator
+import androidx.compose.ui.postDelayed
+import androidx.compose.ui.removePost
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.plus
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.toOffset
+import androidx.compose.ui.util.trace
+import kotlin.math.max
+import kotlinx.coroutines.DisposableHandle
 
-internal class RectManager {
-
+internal class RectManager(
+    /** [LayoutNode.semanticsId] to [LayoutNode] mapping, maintained by Owner. */
+    private val layoutNodes: IntObjectMap<LayoutNode> = intObjectMapOf(),
+) {
     val rects: RectList = RectList()
 
+    private val throttledCallbacks = ThrottledCallbacks()
     private val callbacks = mutableObjectListOf<() -> Unit>()
     private var isDirty = false
+    private var isScreenOrWindowDirty = false
     private var isFragmented = false
+    private var dispatchToken: Any? = null
+    private var scheduledDispatchDeadline: Long = -1
+    private val dispatchLambda = {
+        dispatchToken = null
+        trace("OnPositionedDispatch") { dispatchCallbacks() }
+    }
 
     fun invalidate() {
         isDirty = true
     }
 
+    fun updateOffsets(
+        screenOffset: IntOffset,
+        windowOffset: IntOffset,
+        viewToWindowMatrix: Matrix
+    ) {
+        val analysis = viewToWindowMatrix.analyzeComponents()
+        isScreenOrWindowDirty =
+            throttledCallbacks.updateOffsets(
+                screenOffset,
+                windowOffset,
+                if (analysis.hasNonTranslationComponents) viewToWindowMatrix else null,
+            ) || isScreenOrWindowDirty
+    }
+
     // TODO: we need to make sure these are dispatched after draw if needed
     fun dispatchCallbacks() {
+        val currentTime = currentTimeMillis()
+
+        // For ThrottledCallbacks on global changes we need to make sure they are all called for any
+        // change
+        val isDispatchGlobalCallbacks = isDirty || isScreenOrWindowDirty
+
+        // TODO: we need to move this to avoid double-firing
         if (isDirty) {
             isDirty = false
-            // The hierarchy is "settled" in terms of nodes being added/removed for this frame
-            // This makes it a reasonable time to "defragment" the RectList data structure. This
-            // will keep operations on this data structure efficient over time. This is a fairly
-            // cheap operation to run, so we just do it every time
-            if (isFragmented) {
-                isFragmented = false
-                rects.defragment()
-            }
             callbacks.forEach { it() }
+            rects.forEachUpdatedRect { id, topLeft, bottomRight ->
+                throttledCallbacks.fireOnUpdatedRect(id, topLeft, bottomRight, currentTime)
+            }
+            rects.clearUpdated()
         }
+        if (isScreenOrWindowDirty) {
+            isScreenOrWindowDirty = false
+            throttledCallbacks.fireOnRectChangedEntries(currentTime)
+        }
+        if (isDispatchGlobalCallbacks) {
+            throttledCallbacks.fireGlobalChangeEntries(currentTime)
+        }
+        // The hierarchy is "settled" in terms of nodes being added/removed for this frame
+        // This makes it a reasonable time to "defragment" the RectList data structure. This
+        // will keep operations on this data structure efficient over time. This is a fairly
+        // cheap operation to run, so we just do it every time
+        if (isFragmented) {
+            isFragmented = false
+            // TODO: if we want to take advantage of the "generation", we will be motivated to
+            //  call this less often. Alternatively we could track the number of remove() calls
+            //  we have made and only call defragment once it exceeds a certain percentage of
+            //  the overall list.
+            rects.defragment()
+        }
+        // this gets called frequently, but we might need to schedule it more often to ensure that
+        // debounced callbacks get fired
+        throttledCallbacks.triggerDebounced(currentTime)
+    }
+
+    fun scheduleDebounceCallback(ensureSomethingScheduled: Boolean) {
+        val canExitEarly = !ensureSomethingScheduled || dispatchToken != null
+        val nextDeadline = throttledCallbacks.minDebounceDeadline
+        if (nextDeadline < 0 && canExitEarly) {
+            return
+        }
+        val currentScheduledDeadline = scheduledDispatchDeadline
+        if (currentScheduledDeadline == nextDeadline && canExitEarly) {
+            return
+        }
+        if (dispatchToken != null) {
+            removePost(dispatchToken)
+        }
+        val currentTime = currentTimeMillis()
+        val nextFrameIsh = currentTime + 16
+        val deadline = max(nextDeadline, nextFrameIsh)
+        scheduledDispatchDeadline = deadline
+        val delay = deadline - currentTime
+        dispatchToken = postDelayed(delay, dispatchLambda)
+    }
+
+    fun currentRectInfo(id: Int, node: DelegatableNode): RelativeLayoutBounds? {
+        var result: RelativeLayoutBounds? = null
+        rects.withRect(id) { l, t, r, b ->
+            result =
+                rectInfoFor(
+                    node = node,
+                    topLeft = packXY(l, t),
+                    bottomRight = packXY(r, b),
+                    windowOffset = throttledCallbacks.windowOffset,
+                    screenOffset = throttledCallbacks.screenOffset,
+                    viewToWindowMatrix = throttledCallbacks.viewToWindowMatrix,
+                )
+        }
+        return result
     }
 
     fun registerOnChangedCallback(callback: () -> Unit): Any? {
         callbacks.add(callback)
         return callback
+    }
+
+    fun registerOnRectChangedCallback(
+        id: Int,
+        throttleMillis: Long,
+        debounceMillis: Long,
+        node: DelegatableNode,
+        callback: (RelativeLayoutBounds) -> Unit
+    ): DisposableHandle {
+        return throttledCallbacks.registerOnRectChanged(
+            id,
+            throttleMillis,
+            debounceMillis,
+            node,
+            callback,
+        )
+    }
+
+    fun registerOnGlobalLayoutCallback(
+        id: Int,
+        throttleMillis: Long,
+        debounceMillis: Long,
+        node: DelegatableNode,
+        callback: (RelativeLayoutBounds) -> Unit
+    ): DisposableHandle {
+        return throttledCallbacks.registerOnGlobalChange(
+            id = id,
+            throttleMillis = throttleMillis,
+            debounceMillis = debounceMillis,
+            node = node,
+            callback = callback,
+        )
     }
 
     fun unregisterOnChangedCallback(token: Any?) {
@@ -70,17 +197,25 @@ internal class RectManager {
         callbacks.remove(token)
     }
 
+    fun invalidateCallbacksFor(layoutNode: LayoutNode) {
+        isDirty = true
+        rects.markUpdated(layoutNode.semanticsId)
+        scheduleDebounceCallback(ensureSomethingScheduled = true)
+    }
+
     fun onLayoutLayerPositionalPropertiesChanged(layoutNode: LayoutNode) {
         @OptIn(ExperimentalComposeUiApi::class) if (!ComposeUiFlags.isRectTrackingEnabled) return
         val outerToInnerOffset = layoutNode.outerToInnerOffset()
         if (outerToInnerOffset.isSet) {
-            // translational properties only. AARB still valid.
+            // translational properties only. AABB still valid.
             layoutNode.outerToInnerOffset = outerToInnerOffset
             layoutNode.outerToInnerOffsetDirty = false
             layoutNode.forEachChild {
                 // NOTE: this calls rectlist.move(...) so does not need to be recursive
+                // TODO: we could potentially move to a single call of `updateSubhierarchy(...)`
                 onLayoutPositionChanged(it, it.outerCoordinator.position, false)
             }
+            invalidateCallbacksFor(layoutNode)
         } else {
             // there are rotations/skews/scales going on, so we need to do a more expensive update
             insertOrUpdateTransformedNodeSubhierarchy(layoutNode)
@@ -301,6 +436,62 @@ internal class RectManager {
         rects.remove(layoutNode.semanticsId)
         invalidate()
         isFragmented = true
+    }
+
+    /**
+     * For occlusion calculation, returns whether the [LayoutNode] corresponding to [targetId] is
+     * drawn first compared to the [LayoutNode] corresponding to [otherId].
+     *
+     * @return true when the target will be drawn first, false for everything else, including when
+     *   either is an ancestor of the other.
+     */
+    internal fun isTargetDrawnFirst(targetId: Int, otherId: Int): Boolean {
+        var nodeA = layoutNodes[targetId] ?: return false
+        var nodeB = layoutNodes[otherId] ?: return false
+
+        if (nodeA.depth == 0 || nodeB.depth == 0) {
+            // Fail early when either is Root
+            return false
+        }
+
+        while (nodeA.depth > nodeB.depth) {
+            nodeA = nodeA.parent ?: return false // Early check avoids these null parent cases
+        }
+
+        if (nodeA === nodeB) {
+            // Node B was parent of Node A
+            return false
+        }
+
+        while (nodeB.depth > nodeA.depth) {
+            nodeB = nodeB.parent ?: return false
+        }
+
+        if (nodeA === nodeB) {
+            // Node A was parent of Node B
+            return false
+        }
+
+        // Keep track of the branching parent for both nodes, the draw order of these decide how
+        // [targetId] and [otherId] compare.
+        var lastParentA: LayoutNode = nodeA
+        var lastParentB: LayoutNode = nodeB
+
+        while (nodeA !== nodeB) {
+            lastParentA = nodeA
+            lastParentB = nodeB
+            // Null parent means we went past the root without finding common ancestor, shouldn't
+            // happen but we only return true when we know the target is drawn first
+            nodeA = nodeA.parent ?: return false
+            nodeB = nodeB.parent ?: return false
+        }
+
+        // Lower zIndex is drawn first, otherwise lower placeOrder decides draw order
+        if (lastParentA.measurePassDelegate.zIndex == lastParentB.measurePassDelegate.zIndex) {
+            return lastParentA.placeOrder < lastParentB.placeOrder
+        } else {
+            return lastParentA.measurePassDelegate.zIndex < lastParentB.measurePassDelegate.zIndex
+        }
     }
 }
 

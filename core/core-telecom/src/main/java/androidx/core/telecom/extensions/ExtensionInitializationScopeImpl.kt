@@ -16,6 +16,7 @@
 
 package androidx.core.telecom.extensions
 
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.os.RemoteException
@@ -23,10 +24,15 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.telecom.CallControlScope
 import androidx.core.telecom.CallsManager
+import androidx.core.telecom.internal.CallStateEvent
 import androidx.core.telecom.internal.CapabilityExchangeRemote
 import androidx.core.telecom.internal.CapabilityExchangeRepository
 import androidx.core.telecom.util.ExperimentalAppActions
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
@@ -41,7 +47,11 @@ import kotlinx.coroutines.launch
  */
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalAppActions::class)
-internal class ExtensionInitializationScopeImpl : ExtensionInitializationScope {
+internal class ExtensionInitializationScopeImpl(
+    private val context: Context,
+    private val coroutineContext: CoroutineContext,
+    private val callStateFlow: MutableSharedFlow<CallStateEvent>
+) : ExtensionInitializationScope {
     private companion object {
         const val LOG_TAG = Extensions.LOG_TAG + "(EIS)"
     }
@@ -64,12 +74,18 @@ internal class ExtensionInitializationScopeImpl : ExtensionInitializationScope {
         return participant
     }
 
-    override fun addLocalSilenceExtension(
+    override fun addLocalCallSilenceExtension(
         initialCallSilenceState: Boolean,
         onLocalSilenceUpdate: (suspend (Boolean) -> Unit)
     ): LocalCallSilenceExtension {
         val localSilenceExtension =
-            LocalCallSilenceExtensionImpl(initialCallSilenceState, onLocalSilenceUpdate)
+            LocalCallSilenceExtensionImpl(
+                context,
+                coroutineContext,
+                callStateFlow,
+                initialCallSilenceState,
+                onLocalSilenceUpdate
+            )
         registerExtension(onExchangeStarted = localSilenceExtension::onExchangeStarted)
         return localSilenceExtension
     }
@@ -162,7 +178,16 @@ internal class ExtensionInitializationScopeImpl : ExtensionInitializationScope {
         Log.i(LOG_TAG, "handleCapabilityExchangeEvent: received CE request, v=#$version")
         // Create a child scope for setting up and running the extensions so that we can cancel
         // the child scope when the remote ICS disconnects without affecting the parent scope.
-        val connectionScope = CoroutineScope(coroutineContext)
+        val connectionScope = CoroutineScope(coroutineContext + SupervisorJob())
+        capExchange
+            .asBinder()
+            .linkToDeath(
+                {
+                    Log.i(LOG_TAG, "handleCapabilityExchangeEvent: remote died, cleaning scope")
+                    connectionScope.cancel("remote process died")
+                },
+                0 /* flags */
+            )
         // Create a new repository for each new connection
         val callbackRepository = CapabilityExchangeRepository(connectionScope)
         val capabilities = extensionCreators.map { it.invoke(callbackRepository) }

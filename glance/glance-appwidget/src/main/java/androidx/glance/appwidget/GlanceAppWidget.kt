@@ -58,8 +58,8 @@ import kotlinx.coroutines.CancellationException
 abstract class GlanceAppWidget(
     @LayoutRes internal open val errorUiLayout: Int = R.layout.glance_error_layout,
 ) {
-    @get:RestrictTo(Scope.LIBRARY_GROUP)
-    protected open val sessionManager: SessionManager = GlanceSessionManager
+    @RestrictTo(Scope.LIBRARY_GROUP)
+    open fun getSessionManager(context: Context): SessionManager = GlanceSessionManager
 
     /**
      * Override this function to provide the Glance Composable.
@@ -140,7 +140,7 @@ abstract class GlanceAppWidget(
      */
     internal suspend fun deleted(context: Context, appWidgetId: Int) {
         val glanceId = AppWidgetId(appWidgetId)
-        sessionManager.runWithLock { closeSession(glanceId.toSessionKey()) }
+        getSessionManager(context).runWithLock { closeSession(glanceId.toSessionKey()) }
         try {
             onDelete(context, glanceId)
         } catch (cancelled: CancellationException) {
@@ -163,13 +163,8 @@ abstract class GlanceAppWidget(
     ) {
         Tracing.beginGlanceAppWidgetUpdate()
         val glanceId = AppWidgetId(appWidgetId)
-        sessionManager.runWithLock {
-            if (!isSessionRunning(context, glanceId.toSessionKey())) {
-                startSession(context, createAppWidgetSession(glanceId, options))
-                return@runWithLock
-            }
-            val session = getSession(glanceId.toSessionKey()) as AppWidgetSession
-            session.updateGlance()
+        getOrCreateAppWidgetSession(context, glanceId, options) { session, wasRunning ->
+            if (wasRunning) session.updateGlance()
         }
     }
 
@@ -184,7 +179,7 @@ abstract class GlanceAppWidget(
         options: Bundle? = null,
     ) {
         val glanceId = AppWidgetId(appWidgetId)
-        sessionManager.getOrCreateAppWidgetSession(context, glanceId, options) { session ->
+        getOrCreateAppWidgetSession(context, glanceId, options) { session, _ ->
             session.runLambda(actionKey)
         }
     }
@@ -200,7 +195,7 @@ abstract class GlanceAppWidget(
             return
         }
         val glanceId = AppWidgetId(appWidgetId)
-        sessionManager.getOrCreateAppWidgetSession(context, glanceId, options) { session ->
+        getOrCreateAppWidgetSession(context, glanceId, options) { session, _ ->
             session.updateAppWidgetOptions(options)
         }
     }
@@ -240,18 +235,20 @@ abstract class GlanceAppWidget(
         }
     }
 
-    private suspend fun SessionManager.getOrCreateAppWidgetSession(
+    internal suspend fun <T> getOrCreateAppWidgetSession(
         context: Context,
         glanceId: AppWidgetId,
         options: Bundle? = null,
-        block: suspend SessionManagerScope.(AppWidgetSession) -> Unit
-    ) = runWithLock {
-        if (!isSessionRunning(context, glanceId.toSessionKey())) {
-            startSession(context, createAppWidgetSession(glanceId, options))
+        block: suspend SessionManagerScope.(AppWidgetSession, Boolean) -> T,
+    ): T =
+        getSessionManager(context).runWithLock {
+            val wasRunning = isSessionRunning(context, glanceId.toSessionKey())
+            if (!wasRunning) {
+                startSession(context, createAppWidgetSession(context, glanceId, options))
+            }
+            val session = getSession(glanceId.toSessionKey()) as AppWidgetSession
+            return@runWithLock block(session, wasRunning)
         }
-        val session = getSession(glanceId.toSessionKey()) as AppWidgetSession
-        block(session)
-    }
 
     /**
      * Override this function to specify the components that will be used for actions and
@@ -259,11 +256,15 @@ abstract class GlanceAppWidget(
      *
      * If null, then the default components will be used.
      */
-    @get:RestrictTo(Scope.LIBRARY_GROUP) open val components: GlanceComponents? = null
+    @RestrictTo(Scope.LIBRARY_GROUP)
+    open fun getComponents(context: Context): GlanceComponents? = null
 
     @RestrictTo(Scope.LIBRARY_GROUP)
-    protected open fun createAppWidgetSession(id: AppWidgetId, options: Bundle? = null) =
-        AppWidgetSession(this@GlanceAppWidget, id, options)
+    protected open fun createAppWidgetSession(
+        context: Context,
+        id: AppWidgetId,
+        options: Bundle? = null
+    ) = AppWidgetSession(this@GlanceAppWidget, id, options)
 }
 
 @RestrictTo(Scope.LIBRARY_GROUP) data class AppWidgetId(val appWidgetId: Int) : GlanceId

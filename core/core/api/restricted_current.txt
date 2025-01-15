@@ -80,6 +80,7 @@ package androidx.core.app {
   public class ActivityOptionsCompat {
     ctor protected ActivityOptionsCompat();
     method public android.graphics.Rect? getLaunchBounds();
+    method public int getLaunchDisplayId();
     method public static androidx.core.app.ActivityOptionsCompat makeBasic();
     method public static androidx.core.app.ActivityOptionsCompat makeClipRevealAnimation(android.view.View, int, int, int, int);
     method public static androidx.core.app.ActivityOptionsCompat makeCustomAnimation(android.content.Context, int, int);
@@ -90,6 +91,7 @@ package androidx.core.app {
     method public static androidx.core.app.ActivityOptionsCompat makeThumbnailScaleUpAnimation(android.view.View, android.graphics.Bitmap, int, int);
     method public void requestUsageTimeReport(android.app.PendingIntent);
     method public androidx.core.app.ActivityOptionsCompat setLaunchBounds(android.graphics.Rect?);
+    method public androidx.core.app.ActivityOptionsCompat setLaunchDisplayId(int);
     method public androidx.core.app.ActivityOptionsCompat setPendingIntentBackgroundActivityStartMode(int);
     method public androidx.core.app.ActivityOptionsCompat setShareIdentityEnabled(boolean);
     method public android.os.Bundle? toBundle();
@@ -1200,6 +1202,8 @@ package androidx.core.app {
     method public android.content.Intent![] getIntents();
     method public android.app.PendingIntent? getPendingIntent(int, int);
     method public android.app.PendingIntent? getPendingIntent(int, int, android.os.Bundle?);
+    method public android.app.PendingIntent? getPendingIntent(int, int, android.os.Bundle?, boolean);
+    method public android.app.PendingIntent? getPendingIntent(int, int, boolean);
     method @Deprecated public java.util.Iterator<android.content.Intent!> iterator();
     method public void startActivities();
     method public void startActivities(android.os.Bundle?);
@@ -1963,7 +1967,11 @@ package androidx.core.hardware.display {
     method public android.view.Display![] getDisplays();
     method public android.view.Display![] getDisplays(String?);
     method public static androidx.core.hardware.display.DisplayManagerCompat getInstance(android.content.Context);
+    field @SuppressCompatibility @androidx.core.hardware.display.ExperimentalDisplayApi public static final String DISPLAY_CATEGORY_BUILT_IN_DISPLAYS = "android.hardware.display.category.BUILT_IN_DISPLAYS";
     field public static final String DISPLAY_CATEGORY_PRESENTATION = "android.hardware.display.category.PRESENTATION";
+  }
+
+  @SuppressCompatibility @kotlin.RequiresOptIn(level=kotlin.RequiresOptIn.Level.WARNING) @kotlin.annotation.MustBeDocumented @kotlin.annotation.Retention(kotlin.annotation.AnnotationRetention.BINARY) public @interface ExperimentalDisplayApi {
   }
 
 }
@@ -2250,6 +2258,8 @@ package androidx.core.os {
   }
 
   public static final class BufferFillPolicy.Companion {
+    property public final androidx.core.os.BufferFillPolicy DISCARD;
+    property public final androidx.core.os.BufferFillPolicy RING_BUFFER;
   }
 
   public final class BuildCompat {
@@ -2264,7 +2274,11 @@ package androidx.core.os {
     method @Deprecated @ChecksSdkIntAtLeast(api=32, codename="Sv2") public static boolean isAtLeastSv2();
     method @Deprecated @ChecksSdkIntAtLeast(api=33, codename="Tiramisu") public static boolean isAtLeastT();
     method @Deprecated @ChecksSdkIntAtLeast(api=34, codename="UpsideDownCake") public static boolean isAtLeastU();
-    method @ChecksSdkIntAtLeast(api=35, codename="VanillaIceCream") public static boolean isAtLeastV();
+    method @Deprecated @ChecksSdkIntAtLeast(api=35, codename="VanillaIceCream") public static boolean isAtLeastV();
+    property @ChecksSdkIntAtLeast(extension=android.os.ext.SdkExtensions.AD_SERVICES) public final int AD_SERVICES_EXTENSION_INT;
+    property @ChecksSdkIntAtLeast(extension=android.os.Build.VERSION_CODES.R) public final int R_EXTENSION_INT;
+    property @ChecksSdkIntAtLeast(extension=android.os.Build.VERSION_CODES.S) public final int S_EXTENSION_INT;
+    property @ChecksSdkIntAtLeast(extension=android.os.Build.VERSION_CODES.TIRAMISU) public final int T_EXTENSION_INT;
     field @ChecksSdkIntAtLeast(extension=android.os.ext.SdkExtensions.AD_SERVICES) public static final int AD_SERVICES_EXTENSION_INT;
     field public static final androidx.core.os.BuildCompat INSTANCE;
     field @ChecksSdkIntAtLeast(extension=android.os.Build.VERSION_CODES.R) public static final int R_EXTENSION_INT;
@@ -2364,6 +2378,11 @@ package androidx.core.os {
   public class OperationCanceledException extends java.lang.RuntimeException {
     ctor public OperationCanceledException();
     ctor public OperationCanceledException(String?);
+  }
+
+  public interface OutcomeReceiverCompat<R, E extends java.lang.Throwable> {
+    method public default void onError(E);
+    method public void onResult(R!);
   }
 
   public final class ParcelCompat {
@@ -3445,6 +3464,13 @@ package androidx.core.view {
     method @Deprecated public static void setQuickScaleEnabled(Object!, boolean);
   }
 
+  public class ScrollFeedbackProviderCompat {
+    method public static androidx.core.view.ScrollFeedbackProviderCompat createProvider(android.view.View);
+    method public void onScrollLimit(int, int, int, boolean);
+    method public void onScrollProgress(int, int, int, int);
+    method public void onSnapToItem(int, int, int);
+  }
+
   public interface ScrollingView {
     method public int computeHorizontalScrollExtent();
     method public int computeHorizontalScrollOffset();
@@ -3488,6 +3514,7 @@ package androidx.core.view {
     method public static int addAccessibilityAction(android.view.View, CharSequence, androidx.core.view.accessibility.AccessibilityViewCommand);
     method public static void addKeyboardNavigationClusters(android.view.View, java.util.Collection<android.view.View!>, int);
     method public static void addOnUnhandledKeyEventListener(android.view.View, androidx.core.view.ViewCompat.OnUnhandledKeyEventListenerCompat);
+    method public static void addOverlayView(android.view.ViewGroup, android.view.View);
     method @Deprecated public static androidx.core.view.ViewPropertyAnimatorCompat animate(android.view.View);
     method @Deprecated public static boolean canScrollHorizontally(android.view.View!, int);
     method @Deprecated public static boolean canScrollVertically(android.view.View!, int);
@@ -3738,6 +3765,7 @@ package androidx.core.view {
   public final class ViewGroupCompat {
     method @Deprecated public static int getLayoutMode(android.view.ViewGroup);
     method @androidx.core.view.ViewCompat.ScrollAxis public static int getNestedScrollAxes(android.view.ViewGroup);
+    method public static void installCompatInsetsDispatch(android.view.View);
     method public static boolean isTransitionGroup(android.view.ViewGroup);
     method @Deprecated public static boolean onRequestSendAccessibilityEvent(android.view.ViewGroup!, android.view.View!, android.view.accessibility.AccessibilityEvent!);
     method @Deprecated public static void setLayoutMode(android.view.ViewGroup, int);
@@ -3947,6 +3975,17 @@ package androidx.core.view {
     method public androidx.core.view.WindowInsetsCompat.Builder setVisible(@androidx.core.view.WindowInsetsCompat.Type.InsetsType int, boolean);
   }
 
+  public static final class WindowInsetsCompat.Side {
+    method @androidx.core.view.WindowInsetsCompat.Side.InsetsSide public static int all();
+    field public static final int BOTTOM = 8; // 0x8
+    field public static final int LEFT = 1; // 0x1
+    field public static final int RIGHT = 4; // 0x4
+    field public static final int TOP = 2; // 0x2
+  }
+
+  @IntDef(flag=true, value={androidx.core.view.WindowInsetsCompat.Side.LEFT, androidx.core.view.WindowInsetsCompat.Side.TOP, androidx.core.view.WindowInsetsCompat.Side.RIGHT, androidx.core.view.WindowInsetsCompat.Side.BOTTOM}) @RestrictTo(androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP) @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE) public static @interface WindowInsetsCompat.Side.InsetsSide {
+  }
+
   public static final class WindowInsetsCompat.Type {
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int captionBar();
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int displayCutout();
@@ -3956,10 +3995,11 @@ package androidx.core.view {
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int statusBars();
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int systemBars();
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int systemGestures();
+    method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int systemOverlays();
     method @androidx.core.view.WindowInsetsCompat.Type.InsetsType public static int tappableElement();
   }
 
-  @IntDef(flag=true, value={0x1, 0x2, 0x4, 0x8, 0x100, 0x10, 0x20, 0x40, 0x80}) @RestrictTo(androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP) @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE) public static @interface WindowInsetsCompat.Type.InsetsType {
+  @IntDef(flag=true, value={0x1, 0x2, 0x4, 0x8, 0x100, 0x10, 0x20, 0x40, 0x80, 0x200}) @RestrictTo(androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP) @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE) public static @interface WindowInsetsCompat.Type.InsetsType {
   }
 
   public final class WindowInsetsControllerCompat {
@@ -4642,6 +4682,47 @@ package androidx.core.view.inputmethod {
     method public void requestPermission();
     method public Object? unwrap();
     method public static androidx.core.view.inputmethod.InputContentInfoCompat? wrap(Object?);
+  }
+
+}
+
+package androidx.core.view.insetscontrast {
+
+  public class ColorProtection extends androidx.core.view.insetscontrast.ContrastProtection {
+    ctor public ColorProtection(@androidx.core.view.WindowInsetsCompat.Side.InsetsSide int);
+    ctor public ColorProtection(@androidx.core.view.WindowInsetsCompat.Side.InsetsSide int, @ColorInt int);
+    method @ColorInt public int getColor();
+    method public void setColor(@ColorInt int);
+  }
+
+  public abstract class ContrastProtection {
+    ctor public ContrastProtection(@androidx.core.view.WindowInsetsCompat.Side.InsetsSide int);
+    method public void animateAlpha(float);
+    method public void animateInsetsAmount(float);
+    method @FloatRange(from=0.0, to=1.0) public float getAlpha();
+    method public float getInsetAmount();
+    method @androidx.core.view.WindowInsetsCompat.Side.InsetsSide public int getSide();
+    method public void setAlpha(@FloatRange(from=0.0, to=1.0) float);
+    method public void setInsetAmount(@FloatRange(from=0.0, to=1.0) float);
+  }
+
+  public class GradientProtection extends androidx.core.view.insetscontrast.ContrastProtection {
+    ctor public GradientProtection(@androidx.core.view.WindowInsetsCompat.Side.InsetsSide int);
+    ctor public GradientProtection(@androidx.core.view.WindowInsetsCompat.Side.InsetsSide int, @ColorInt int);
+    method @ColorInt public int getColor();
+    method public float getScale();
+    method public void setColor(@ColorInt int);
+    method public void setScale(float);
+  }
+
+  public class ProtectionView extends android.widget.FrameLayout {
+    ctor public ProtectionView(android.content.Context, androidx.core.view.insetscontrast.SystemBarStateMonitor, java.util.List<androidx.core.view.insetscontrast.ContrastProtection!>);
+    method public void dispose();
+  }
+
+  public class SystemBarStateMonitor {
+    ctor public SystemBarStateMonitor(android.view.Window);
+    method public void dispose();
   }
 
 }

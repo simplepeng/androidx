@@ -1774,6 +1774,43 @@ class NavControllerTest {
 
     @UiThreadTest
     @Test
+    fun testNavigateFromLifecycleObserverDuringHostLifecycleChange() {
+        val navController = createNavController()
+        val hostLifecycleOwner = TestLifecycleOwner(Lifecycle.State.CREATED)
+        navController.setLifecycleOwner(hostLifecycleOwner)
+        navController.setGraph(R.navigation.nav_simple)
+
+        val receivedDestinationIds = mutableListOf<Int>()
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            receivedDestinationIds += destination.id
+        }
+
+        navController.navigate(R.id.second_test)
+
+        val destinationLifecycle = navController.getBackStackEntry(R.id.second_test).lifecycle
+        assertThat(destinationLifecycle.currentState).isEqualTo(Lifecycle.State.CREATED)
+        destinationLifecycle.addObserver(
+            object : LifecycleEventObserver {
+                override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        navController.popBackStack()
+                    }
+                }
+            }
+        )
+
+        // Now change the host lifecycle to trigger our observer
+        hostLifecycleOwner.currentState = Lifecycle.State.RESUMED
+
+        // And assert that we navigated correctly
+        assertThat(navController.currentDestination?.id).isEqualTo(R.id.start_test)
+        assertThat(receivedDestinationIds)
+            .containsExactly(R.id.start_test, R.id.second_test, R.id.start_test)
+            .inOrder()
+    }
+
+    @UiThreadTest
+    @Test
     fun testPopFromLifecycleObserver() {
         val navController = createNavController()
         navController.setLifecycleOwner(TestLifecycleOwner(Lifecycle.State.RESUMED))
@@ -3327,6 +3364,66 @@ class NavControllerTest {
         assertThat(collectedDestinationIds)
             .containsExactly(R.id.start_test, R.id.start_test, R.id.second_test)
             .inOrder()
+    }
+
+    @UiThreadTest
+    @Test
+    fun testHandleDeepLinkAsUri() {
+        val navController = createNavController()
+        val navigator = navController.navigatorProvider.getNavigator(TestNavigator::class.java)
+        navController.setGraph(R.navigation.nav_simple)
+
+        val deepLink = Uri.parse("test-app://test/333")
+        val request = NavDeepLinkRequest.Builder.fromUri(deepLink).build()
+        assertWithMessage("NavController should handle deep links to its own graph")
+            .that(navController.handleDeepLink(request))
+            .isTrue()
+        // Verify that we navigated down to the deep link
+        assertThat(navigator.backStack.map { it.destination.id })
+            .containsExactly(R.id.start_test, R.id.nonNullableArg_test)
+            .inOrder()
+
+        val destination = navController.currentDestination
+        assertThat(destination?.id ?: 0).isEqualTo(R.id.nonNullableArg_test)
+    }
+
+    @UiThreadTest
+    @Test
+    fun testHandleDeepLink_InvalidUri() {
+        val navController = createNavController()
+        navController.setGraph(R.navigation.nav_simple)
+
+        val deepLink = Uri.parse("test-app://invalid/uri")
+        val request = NavDeepLinkRequest.Builder.fromUri(deepLink).build()
+        assertWithMessage("NavController should not match with any deeplink due to invalid uri")
+            .that(navController.handleDeepLink(request))
+            .isFalse()
+    }
+
+    @UiThreadTest
+    @Test
+    fun testHandleDeepLink_MimeType() {
+        val navController = createNavController()
+        navController.setGraph(R.navigation.nav_simple)
+        val navigator = navController.navigatorProvider.getNavigator(TestNavigator::class.java)
+        val deepLink = NavDeepLinkRequest(Uri.parse("invalidDeepLink.com"), null, "type/test")
+
+        navController.handleDeepLink(deepLink)
+        assertThat(navController.currentDestination?.id ?: 0).isEqualTo(R.id.second_test)
+        assertThat(navigator.backStack.size).isEqualTo(2)
+    }
+
+    @UiThreadTest
+    @Test
+    fun testHandleDeepLink_Action() {
+        val navController = createNavController()
+        navController.setGraph(R.navigation.nav_simple)
+        val navigator = navController.navigatorProvider.getNavigator(TestNavigator::class.java)
+        val deepLink = NavDeepLinkRequest(null, "test.action", null)
+
+        navController.handleDeepLink(deepLink)
+        assertThat(navController.currentDestination?.id ?: 0).isEqualTo(R.id.second_test)
+        assertThat(navigator.backStack.size).isEqualTo(2)
     }
 
     @UiThreadTest

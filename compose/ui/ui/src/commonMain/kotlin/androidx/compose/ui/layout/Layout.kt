@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastForEach
 import kotlin.jvm.JvmName
 
@@ -351,12 +352,12 @@ internal class IntrinsicsMeasureScope(
     override fun layout(
         width: Int,
         height: Int,
-        alignmentLines: Map<out AlignmentLine, Int>,
+        alignmentLines: Map<AlignmentLine, Int>,
         rulers: (RulerScope.() -> Unit)?,
         placementBlock: Placeable.PlacementScope.() -> Unit
     ): MeasureResult {
-        val w = width.coerceAtLeast(0)
-        val h = height.coerceAtLeast(0)
+        val w = width.fastCoerceAtLeast(0)
+        val h = height.fastCoerceAtLeast(0)
         checkMeasuredSize(w, h)
         return object : MeasureResult {
             override val width: Int
@@ -365,7 +366,7 @@ internal class IntrinsicsMeasureScope(
             override val height: Int
                 get() = h
 
-            override val alignmentLines: Map<out AlignmentLine, Int>
+            override val alignmentLines: Map<AlignmentLine, Int>
                 get() = alignmentLines
 
             override val rulers: (RulerScope.() -> Unit)?
@@ -385,12 +386,12 @@ internal class ApproachIntrinsicsMeasureScope(
     override fun layout(
         width: Int,
         height: Int,
-        alignmentLines: Map<out AlignmentLine, Int>,
+        alignmentLines: Map<AlignmentLine, Int>,
         rulers: (RulerScope.() -> Unit)?,
         placementBlock: Placeable.PlacementScope.() -> Unit
     ): MeasureResult {
-        val w = width.coerceAtLeast(0)
-        val h = height.coerceAtLeast(0)
+        val w = width.fastCoerceAtLeast(0)
+        val h = height.fastCoerceAtLeast(0)
         checkMeasuredSize(w, h)
         return object : MeasureResult {
             override val width: Int
@@ -399,7 +400,7 @@ internal class ApproachIntrinsicsMeasureScope(
             override val height: Int
                 get() = h
 
-            override val alignmentLines: Map<out AlignmentLine, Int>
+            override val alignmentLines: Map<AlignmentLine, Int>
                 get() = alignmentLines
 
             override val rulers: (RulerScope.() -> Unit)?

@@ -21,6 +21,8 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 
 plugins {
@@ -57,12 +59,13 @@ androidx {
     type = LibraryType.SAMPLES
     inceptionYear = "2021"
     description = "Contains the sample code for the AndroidX Compose Material You components."
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }
 
 android {
-    compileSdk 35
+    compileSdk = 35
 
-    namespace "androidx.compose.material3.samples"
+    namespace = "androidx.compose.material3.samples"
     // TODO(b/328001575)
     experimentalProperties["android.lint.useK2Uast"] = false
 }

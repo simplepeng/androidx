@@ -21,8 +21,9 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
-import androidx.build.Publish
 
 plugins {
     id("AndroidXPlugin")
@@ -44,9 +45,8 @@ dependencies {
 }
 
 android {
-    compileSdk 35
-
-    namespace 'androidx.graphics.core'
+    compileSdk = 35
+    namespace = "androidx.graphics.core"
 
     defaultConfig {
         externalNativeBuild {
@@ -61,12 +61,12 @@ android {
                                 "-Wl,--undefined-version"
             }
         }
-        consumerProguardFiles 'proguard-rules.pro'
+        consumerProguardFiles("proguard-rules.pro")
     }
     externalNativeBuild {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
-            version '3.22.1'
+            version = libs.versions.cmake.get()
         }
     }
 }
@@ -78,5 +78,6 @@ androidx {
     inceptionYear = "2021"
     description = "Leverage graphics facilities across multiple Android platform releases"
     legacyDisableKotlinStrictApiMode = true
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
     samples(project(":graphics:graphics-core:graphics-core-samples"))
 }

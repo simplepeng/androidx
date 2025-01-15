@@ -18,6 +18,7 @@ package androidx.build
 
 import androidx.build.buildInfo.CreateLibraryBuildInfoFileTask
 import androidx.build.checkapi.shouldConfigureApiTasks
+import androidx.build.sources.sourcesConfigurationName
 import com.android.build.api.dsl.LibraryExtension
 import com.android.build.gradle.AppPlugin
 import com.android.build.gradle.LibraryPlugin
@@ -96,7 +97,9 @@ fun Project.configureMavenArtifactUpload(
             validateTaskIsRegistered(Release.PROJECT_ARCHIVE_ZIP_TASK_NAME)
         }
         if (buildInfoTaskShouldBeRegistered(androidXExtension)) {
-            validateTaskIsRegistered(CreateLibraryBuildInfoFileTask.TASK_NAME)
+            if (!androidXExtension.isIsolatedProjectsEnabled()) {
+                validateTaskIsRegistered(CreateLibraryBuildInfoFileTask.TASK_NAME)
+            }
         }
     }
 }
@@ -162,7 +165,10 @@ private fun Project.configureComponentPublishing(
     }
 
     configure<PublishingExtension> {
-        repositories { it.maven { repo -> repo.setUrl(getRepositoryDirectory()) } }
+        repositories {
+            it.maven { repo -> repo.setUrl(getRepositoryDirectory()) }
+            it.maven { repo -> repo.setUrl(getPerProjectRepositoryDirectory()) }
+        }
         publications {
             if (appliesJavaGradlePluginPlugin()) {
                 // The 'java-gradle-plugin' will also add to the 'pluginMaven' publication
@@ -184,6 +190,8 @@ private fun Project.configureComponentPublishing(
             }
         }
         publications.withType(MavenPublication::class.java).configureEach { publication ->
+            // Used to add buildId to Gradle module metadata set below
+            publication.withBuildIdentifier()
             val isKmpAnchor = (publication.name == KMP_ANCHOR_PUBLICATION_NAME)
             val pomPlatform = androidxKmpExtension.defaultPlatform
             // b/297355397 If a kmp project has Android as the default platform, there might
@@ -264,7 +272,7 @@ private fun Project.configureComponentPublishing(
         }
     }
 
-    // Workaround for https://github.com/gradle/gradle/issues/11717
+    // Workaround for https://github.com/gradle/gradle/issues/31218
     project.tasks.withType(GenerateModuleMetadata::class.java).configureEach { task ->
         task.doLast {
             val metadata = task.outputFile.asFile.get()
@@ -306,9 +314,9 @@ fun sortPomDependencies(pom: String): String {
         // will not move adjacent elements, so any comments would remain in their
         // original order.
         element.content().replaceAll {
-            val index = deps.indexOf(it)
+            val index = sortedDeps.indexOf(it)
             if (index >= 0) {
-                sortedDeps[index]
+                deps[index]
             } else {
                 it
             }

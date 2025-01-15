@@ -17,8 +17,6 @@
 package androidx.wear.compose.material3
 
 import android.content.res.Configuration
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.runtime.Composable
@@ -36,6 +35,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.testutils.assertAgainstGolden
 import androidx.compose.testutils.assertContainsColor
+import androidx.compose.testutils.assertShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -62,6 +64,7 @@ import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -94,8 +97,24 @@ enum class ScreenShape(val isRound: Boolean) {
     SQUARE_DEVICE(false)
 }
 
+/**
+ * Provides a composable function that allows you to place your content in different screen
+ * configurations within your UI tests. This is useful for testing how your composables behave on
+ * different screen sizes and form factors (e.g. round or square screens).
+ *
+ * @param screenSizeDp The desired screen size in dp. The composable will be placed into a square
+ *   box with this side length.
+ * @param isRound An optional boolean value to specify if the simulated screen should be round. If
+ *   `true`, the screen is considered round. If `false`, it is considered rectangular. If `null`,
+ *   the original device's roundness setting is used.
+ * @param content The composable content to be tested within the modified screen configuration.
+ */
 @Composable
-fun ScreenConfiguration(screenSizeDp: Int, content: @Composable () -> Unit) {
+fun ScreenConfiguration(
+    screenSizeDp: Int,
+    isRound: Boolean? = null,
+    content: @Composable () -> Unit
+) {
     val originalConfiguration = LocalConfiguration.current
     val originalContext = LocalContext.current
 
@@ -104,6 +123,11 @@ fun ScreenConfiguration(screenSizeDp: Int, content: @Composable () -> Unit) {
             Configuration(originalConfiguration).apply {
                 screenWidthDp = screenSizeDp
                 screenHeightDp = screenSizeDp
+                if (isRound != null) {
+                    screenLayout =
+                        if (isRound) Configuration.SCREENLAYOUT_ROUND_YES
+                        else Configuration.SCREENLAYOUT_ROUND_NO
+                }
             }
         }
     originalContext.resources.configuration.updateFrom(fixedScreenSizeConfiguration)
@@ -123,9 +147,10 @@ fun ScreenConfiguration(screenSizeDp: Int, content: @Composable () -> Unit) {
 
 /**
  * Valid characters for golden identifiers are [A-Za-z0-9_-] TestParameterInjector adds '[' +
- * parameter_values + ']' to the test name.
+ * parameter_values + ']' + ',' to the test name.
  */
-fun TestName.goldenIdentifier(): String = methodName.replace("[", "_").replace("]", "")
+fun TestName.goldenIdentifier(): String =
+    methodName.replace("[", "_").replace("]", "").replace(",", "_")
 
 internal const val TEST_TAG = "test-item"
 
@@ -217,7 +242,6 @@ internal fun ComposeContentTestRule.verifyActualSize(
     onNodeWithTag(TEST_TAG).assertHeightIsEqualTo(expectedSize).assertWidthIsEqualTo(expectedSize)
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
 internal fun ComposeContentTestRule.verifyColors(
     status: Status,
     expectedContainerColor: @Composable () -> Color,
@@ -352,7 +376,6 @@ internal fun Dp.assertIsEqualTo(expected: Dp, subject: String, tolerance: Dp = D
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
 internal fun ComposeContentTestRule.verifyScreenshot(
     methodName: String,
     screenshotRule: AndroidXScreenshotTestRule,
@@ -371,6 +394,56 @@ internal fun ComposeContentTestRule.verifyScreenshot(
     }
 
     onNodeWithTag(testTag).captureToImage().assertAgainstGolden(screenshotRule, methodName)
+}
+
+fun ComposeContentTestRule.verifyRoundedButtonTapAnimationEnd(
+    baseShape: RoundedCornerShape,
+    pressedShape: RoundedCornerShape,
+    targetProgress: Float,
+    expectedFramesUntilTarget: Int,
+    color: @Composable () -> Color,
+    antiAliasingGap: Float = 2f,
+    releaseAfterTap: Boolean = true,
+    content: @Composable (Modifier) -> Unit
+) {
+    val expectedAnimationEnd =
+        AnimatedRoundedCornerShape(baseShape, pressedShape) { targetProgress }
+    var fillColor = Color.Transparent
+
+    setContent {
+        fillColor = color()
+        content(Modifier.testTag(TEST_TAG))
+    }
+
+    mainClock.autoAdvance = false
+    onNodeWithTag(TEST_TAG).performTouchInput {
+        down(center)
+        if (releaseAfterTap) {
+            up()
+        }
+    }
+
+    /**
+     * We are manually advancing by a fixed amount of frames since
+     * 1) the RoundButton.animateButtonShape is internal and therefore we cannot modify the
+     *    animation spec being used. Otherwise, we could set a custom animation time isolated and
+     *    known to this test we could wait for.
+     * 2) rule.mainClock.waitUntil expects a condition. However, the shape validations for
+     *    ImageBitMap only includes of assets
+     */
+    repeat(expectedFramesUntilTarget) { mainClock.advanceTimeByFrame() }
+
+    onNodeWithTag(TEST_TAG)
+        .captureToImage()
+        .assertShape(
+            density = density,
+            horizontalPadding = 0.dp,
+            verticalPadding = 0.dp,
+            shapeColor = fillColor,
+            backgroundColor = Color.Transparent,
+            antiAliasingGap = antiAliasingGap,
+            shape = expectedAnimationEnd,
+        )
 }
 
 private fun ImageBitmap.histogram(): MutableMap<Color, Long> {
@@ -393,3 +466,26 @@ internal enum class Status {
 }
 
 class StableRef<T>(var value: T)
+
+/**
+ * Creates a [HapticFeedback] that can execute a custom code when
+ * [HapticFeedback.performHapticFeedback] is triggered.
+ */
+internal fun hapticFeedback(
+    perform: (hapticFeedbackType: HapticFeedbackType) -> Unit
+): HapticFeedback =
+    object : HapticFeedback {
+        override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+            perform(hapticFeedbackType)
+        }
+    }
+
+/**
+ * Implementation to be used with [hapticFeedback] to collect all the haptic feedback performed and
+ * store in [results].
+ */
+internal fun collectResultsFromHapticFeedback(
+    results: MutableMap<HapticFeedbackType, Int>
+): (hapticFeedbackType: HapticFeedbackType) -> Unit = { hapticFeedbackType: HapticFeedbackType ->
+    results.merge(hapticFeedbackType, 1, Int::plus)
+}

@@ -29,6 +29,7 @@ plugins {
 }
 
 dependencies {
+    api(libs.jspecify)
     api(project(":emoji:emoji"))
     api("androidx.appcompat:appcompat:1.1.0")
 }
@@ -42,5 +43,5 @@ androidx {
 }
 
 android {
-    namespace "androidx.emoji.appcompat"
+    namespace = "androidx.emoji.appcompat"
 }

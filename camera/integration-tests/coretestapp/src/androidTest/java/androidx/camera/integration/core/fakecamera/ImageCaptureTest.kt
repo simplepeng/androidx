@@ -16,6 +16,7 @@
 
 package androidx.camera.integration.core.fakecamera
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.os.Build
@@ -27,10 +28,13 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.testing.fakes.FakeAppConfig
 import androidx.camera.testing.fakes.FakeCamera
 import androidx.camera.testing.fakes.FakeCameraControl
-import androidx.camera.testing.impl.fakes.FakeLifecycleOwner
+import androidx.camera.testing.imagecapture.CaptureResult.Companion.successfulResult
+import androidx.camera.testing.impl.IgnoreProblematicDeviceRule
 import androidx.camera.testing.impl.fakes.FakeOnImageCapturedCallback
 import androidx.camera.testing.impl.fakes.FakeOnImageSavedCallback
+import androidx.camera.testing.rules.FakeCameraTestRule
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.rule.GrantPermissionRule
 import com.google.common.truth.Truth
 import com.google.common.truth.Truth.assertThat
 import java.text.SimpleDateFormat
@@ -40,9 +44,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import org.junit.After
+import org.junit.Assume.assumeFalse
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -59,28 +62,26 @@ import org.junit.runners.Parameterized
 class ImageCaptureTest(
     @CameraSelector.LensFacing private val lensFacing: Int,
 ) {
+    @get:Rule val fakeCameraRule = FakeCameraTestRule(ApplicationProvider.getApplicationContext())
+
     @get:Rule
     val temporaryFolder =
         TemporaryFolder(ApplicationProvider.getApplicationContext<Context>().cacheDir)
 
+    // Required for MediaStore tests on some emulators
+    @get:Rule
+    val storagePermissionRule: GrantPermissionRule =
+        GrantPermissionRule.grant(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        )
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private lateinit var cameraProvider: ProcessCameraProvider
     private lateinit var camera: FakeCamera
     private lateinit var cameraControl: FakeCameraControl
     private lateinit var imageCapture: ImageCapture
 
-    @Before
-    fun setup() = runBlocking {
-        cameraProvider = getFakeConfigCameraProvider(context)
-        imageCapture = bindImageCapture()
-    }
-
-    @After
-    fun tearDown() = runBlocking {
-        if (::cameraProvider.isInitialized) {
-            withContext(Dispatchers.Main) { cameraProvider.shutdownAsync()[10, TimeUnit.SECONDS] }
-        }
-    }
+    @Before fun setup() = runBlocking { imageCapture = bindImageCapture() }
 
     // Duplicate to ImageCaptureTest on core-test-app JVM tests, any change here may need to be
     // reflected there too
@@ -96,18 +97,25 @@ class ImageCaptureTest(
 
     // Duplicate to ImageCaptureTest on core-test-app JVM tests, any change here may need to be
     // reflected there too
-    @Ignore("b/318314454")
     @Test
     fun canCreateBitmapFromTakenImage_whenImageCapturedCallbackIsUsed(): Unit = runBlocking {
-        val callback = FakeOnImageCapturedCallback()
+        assumeFalse(
+            "This emulator fails to create a bitmap from an android.media.Image instance" +
+                ", the emulator is known to have various issues and generally ignored in our tests",
+            IgnoreProblematicDeviceRule.isPixel2Api26Emulator
+        )
+
+        val callback = FakeOnImageCapturedCallback(closeImageOnSuccess = false)
+
         imageCapture.takePicture(CameraXExecutors.directExecutor(), callback)
+        cameraControl.submitCaptureResult(successfulResult())
+
         callback.awaitCapturesAndAssert(capturedImagesCount = 1)
-        callback.results.first().image.toBitmap()
+        assertThat(callback.results.first().image.toBitmap()).isNotNull()
     }
 
     // Duplicate to ImageCaptureTest on core-test-app JVM tests, any change here may need to be
     // reflected there too
-    @Ignore("b/318314454")
     @Test
     fun canFindImage_whenFileStorageAndImageSavedCallbackIsUsed(): Unit = runBlocking {
         val saveLocation = temporaryFolder.newFile()
@@ -119,6 +127,7 @@ class ImageCaptureTest(
             CameraXExecutors.directExecutor(),
             callback
         )
+        cameraControl.submitCaptureResult(successfulResult())
 
         callback.awaitCapturesAndAssert(capturedImagesCount = 1)
         assertThat(saveLocation.length()).isGreaterThan(previousLength)
@@ -126,16 +135,18 @@ class ImageCaptureTest(
 
     // Duplicate to ImageCaptureTest on androidTest/fakecamera/ImageCaptureTest, any change here may
     // need to be reflected there too
-    @Ignore("b/318314454")
     @Test
     fun canFindImage_whenMediaStoreAndImageSavedCallbackIsUsed(): Unit = runBlocking {
         val initialCount = getMediaStoreCameraXImageCount()
         val callback = FakeOnImageSavedCallback()
+
         imageCapture.takePicture(
             createMediaStoreOutputOptions(),
             CameraXExecutors.directExecutor(),
             callback
         )
+        cameraControl.submitCaptureResult(successfulResult())
+
         callback.awaitCapturesAndAssert(capturedImagesCount = 1)
         assertThat(getMediaStoreCameraXImageCount()).isEqualTo(initialCount + 1)
     }
@@ -144,19 +155,10 @@ class ImageCaptureTest(
         val imageCapture = ImageCapture.Builder().build()
 
         withContext(Dispatchers.Main) {
-            cameraProvider.bindToLifecycle(
-                FakeLifecycleOwner().apply { startAndResume() },
-                CameraSelector.Builder().requireLensFacing(lensFacing).build(),
-                imageCapture
-            )
+            fakeCameraRule.bindUseCases(lensFacing, listOf(imageCapture))
         }
 
-        camera =
-            when (lensFacing) {
-                CameraSelector.LENS_FACING_BACK -> FakeAppConfig.getBackCamera()
-                CameraSelector.LENS_FACING_FRONT -> FakeAppConfig.getFrontCamera()
-                else -> throw AssertionError("Unsupported lens facing: $lensFacing")
-            }
+        camera = fakeCameraRule.getFakeCamera(lensFacing)
         cameraControl = camera.cameraControl as FakeCameraControl
 
         return imageCapture

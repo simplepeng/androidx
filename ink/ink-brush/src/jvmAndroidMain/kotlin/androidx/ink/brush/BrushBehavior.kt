@@ -18,6 +18,7 @@ package androidx.ink.brush
 
 import androidx.annotation.RestrictTo
 import androidx.ink.nativeloader.NativeLoader
+import androidx.ink.nativeloader.UsedByNative
 import java.util.Collections.unmodifiableList
 import java.util.Collections.unmodifiableSet
 import kotlin.jvm.JvmField
@@ -77,10 +78,10 @@ public class BrushBehavior(
     public constructor(
         source: Source,
         target: Target,
-        sourceValueRangeLowerBound: Float,
-        sourceValueRangeUpperBound: Float,
-        targetModifierRangeLowerBound: Float,
-        targetModifierRangeUpperBound: Float,
+        sourceValueRangeStart: Float,
+        sourceValueRangeEnd: Float,
+        targetModifierRangeStart: Float,
+        targetModifierRangeEnd: Float,
         sourceOutOfRangeBehavior: OutOfRange = OutOfRange.CLAMP,
         responseCurve: EasingFunction = EasingFunction.Predefined.LINEAR,
         responseTimeMillis: Long = 0L,
@@ -91,9 +92,9 @@ public class BrushBehavior(
             var node: ValueNode =
                 SourceNode(
                     source,
-                    sourceValueRangeLowerBound,
-                    sourceValueRangeUpperBound,
-                    sourceOutOfRangeBehavior,
+                    sourceValueRangeStart,
+                    sourceValueRangeEnd,
+                    sourceOutOfRangeBehavior
                 )
             if (enabledToolTypes != ALL_TOOL_TYPES) {
                 node = ToolTypeFilterNode(enabledToolTypes, node)
@@ -114,14 +115,7 @@ public class BrushBehavior(
                         node
                     )
             }
-            listOf(
-                TargetNode(
-                    target,
-                    targetModifierRangeLowerBound,
-                    targetModifierRangeUpperBound,
-                    node
-                )
-            )
+            listOf(TargetNode(target, targetModifierRangeStart, targetModifierRangeEnd, node))
         }
     )
 
@@ -135,7 +129,7 @@ public class BrushBehavior(
      *   .setSource(...)
      *   .setTarget(...)
      *   .setSourceOutOfRangeBehavior(...)
-     *   .setSourceValueRangeLowerBound(...)
+     *   .setSourceValueRangeStart(...)
      *   .build();
      * ```
      */
@@ -144,10 +138,10 @@ public class BrushBehavior(
         private var source: Source = Source.NORMALIZED_PRESSURE
         private var target: Target = Target.SIZE_MULTIPLIER
         private var sourceOutOfRangeBehavior: OutOfRange = OutOfRange.CLAMP
-        private var sourceValueRangeLowerBound: Float = 0f
-        private var sourceValueRangeUpperBound: Float = 1f
-        private var targetModifierRangeLowerBound: Float = 0f
-        private var targetModifierRangeUpperBound: Float = 1f
+        private var sourceValueRangeStart: Float = 0f
+        private var sourceValueRangeEnd: Float = 1f
+        private var targetModifierRangeStart: Float = 0f
+        private var targetModifierRangeEnd: Float = 1f
         private var responseCurve: EasingFunction = EasingFunction.Predefined.LINEAR
         private var responseTimeMillis: Long = 0L
         private var enabledToolTypes: Set<InputToolType> = ALL_TOOL_TYPES
@@ -162,25 +156,21 @@ public class BrushBehavior(
                 this.sourceOutOfRangeBehavior = sourceOutOfRangeBehavior
             }
 
-        public fun setSourceValueRangeLowerBound(sourceValueRangeLowerBound: Float): Builder =
-            apply {
-                this.sourceValueRangeLowerBound = sourceValueRangeLowerBound
-            }
+        public fun setSourceValueRangeStart(sourceValueRangeStart: Float): Builder = apply {
+            this.sourceValueRangeStart = sourceValueRangeStart
+        }
 
-        public fun setSourceValueRangeUpperBound(sourceValueRangeUpperBound: Float): Builder =
-            apply {
-                this.sourceValueRangeUpperBound = sourceValueRangeUpperBound
-            }
+        public fun setSourceValueRangeEnd(sourceValueRangeEnd: Float): Builder = apply {
+            this.sourceValueRangeEnd = sourceValueRangeEnd
+        }
 
-        public fun setTargetModifierRangeLowerBound(targetModifierRangeLowerBound: Float): Builder =
-            apply {
-                this.targetModifierRangeLowerBound = targetModifierRangeLowerBound
-            }
+        public fun setTargetModifierRangeStart(targetModifierRangeStart: Float): Builder = apply {
+            this.targetModifierRangeStart = targetModifierRangeStart
+        }
 
-        public fun setTargetModifierRangeUpperBound(targetModifierRangeUpperBound: Float): Builder =
-            apply {
-                this.targetModifierRangeUpperBound = targetModifierRangeUpperBound
-            }
+        public fun setTargetModifierRangeEnd(targetModifierRangeEnd: Float): Builder = apply {
+            this.targetModifierRangeEnd = targetModifierRangeEnd
+        }
 
         public fun setResponseCurve(responseCurve: EasingFunction): Builder = apply {
             this.responseCurve = responseCurve
@@ -202,10 +192,10 @@ public class BrushBehavior(
             BrushBehavior(
                 source,
                 target,
-                sourceValueRangeLowerBound,
-                sourceValueRangeUpperBound,
-                targetModifierRangeLowerBound,
-                targetModifierRangeUpperBound,
+                sourceValueRangeStart,
+                sourceValueRangeEnd,
+                targetModifierRangeStart,
+                targetModifierRangeEnd,
                 sourceOutOfRangeBehavior,
                 responseCurve,
                 responseTimeMillis,
@@ -250,25 +240,20 @@ public class BrushBehavior(
     }
 
     /** Creates an underlying native brush behavior with no nodes and returns its memory address. */
-    private external fun nativeCreateEmptyBrushBehavior():
-        Long // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative private external fun nativeCreateEmptyBrushBehavior(): Long
 
     /**
      * Validates a native `BrushBehavior` and returns the pointer back, or deletes the native
      * `BrushBehavior` and throws an exception if it's not valid.
      */
-    private external fun nativeValidateOrDeleteAndThrow(
-        nativePointer: Long
-    ): Long // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative private external fun nativeValidateOrDeleteAndThrow(nativePointer: Long): Long
 
     /**
      * Release the underlying memory allocated in [nativeCreateBrushBehaviorLinear],
      * [nativeCreateBrushBehaviorPredefined], [nativeCreateBrushBehaviorSteps], or
      * [nativeCreateBrushBehaviorCubicBezier].
      */
-    private external fun nativeFreeBrushBehavior(
-        nativePointer: Long
-    ) // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative private external fun nativeFreeBrushBehavior(nativePointer: Long)
 
     public companion object {
         init {
@@ -295,7 +280,6 @@ public class BrushBehavior(
     public class Source private constructor(@JvmField internal val value: Int) {
         internal fun toSimpleString(): String =
             when (this) {
-                CONSTANT_ZERO -> "CONSTANT_ZERO"
                 NORMALIZED_PRESSURE -> "NORMALIZED_PRESSURE"
                 TILT_IN_RADIANS -> "TILT_IN_RADIANS"
                 TILT_X_IN_RADIANS -> "TILT_X_IN_RADIANS"
@@ -366,91 +350,84 @@ public class BrushBehavior(
 
         public companion object {
 
-            /**
-             * A source whose value is always zero. This can be used to provide a constant modifier
-             * to a target value. Normally this is not needed, because you can just set those
-             * modifiers directly on the [BrushTip], but it can become useful when combined with the
-             * [enabledToolTypes] and/or [isFallbackFor] fields to only conditionally enable it.
-             */
-            @JvmField public val CONSTANT_ZERO: Source = Source(0)
             /** Stylus or touch pressure with values reported in the range [0, 1]. */
-            @JvmField public val NORMALIZED_PRESSURE: Source = Source(1)
+            @JvmField public val NORMALIZED_PRESSURE: Source = Source(0)
             /** Stylus tilt with values reported in the range [0, π/2] radians. */
-            @JvmField public val TILT_IN_RADIANS: Source = Source(2)
+            @JvmField public val TILT_IN_RADIANS: Source = Source(1)
             /**
              * Stylus tilt along the x axis in the range [-π/2, π/2], with a positive value
              * corresponding to tilt toward the respective positive axis. In order for those values
              * to be reported, both tilt and orientation have to be populated on the StrokeInput.
              */
-            @JvmField public val TILT_X_IN_RADIANS: Source = Source(3)
+            @JvmField public val TILT_X_IN_RADIANS: Source = Source(2)
             /**
              * Stylus tilt along the y axis in the range [-π/2, π/2], with a positive value
              * corresponding to tilt toward the respective positive axis. In order for those values
              * to be reported, both tilt and orientation have to be populated on the StrokeInput.
              */
-            @JvmField public val TILT_Y_IN_RADIANS: Source = Source(4)
+            @JvmField public val TILT_Y_IN_RADIANS: Source = Source(3)
             /** Stylus orientation with values reported in the range [0, 2π). */
-            @JvmField public val ORIENTATION_IN_RADIANS: Source = Source(5)
+            @JvmField public val ORIENTATION_IN_RADIANS: Source = Source(4)
             /** Stylus orientation with values reported in the range (-π, π]. */
-            @JvmField public val ORIENTATION_ABOUT_ZERO_IN_RADIANS: Source = Source(6)
+            @JvmField public val ORIENTATION_ABOUT_ZERO_IN_RADIANS: Source = Source(5)
             /**
              * Pointer speed with values >= 0 in distance units per second, where one distance unit
              * is equal to the brush size.
              */
-            @JvmField public val SPEED_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(7)
+            @JvmField public val SPEED_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(6)
             /**
              * Signed x component of pointer velocity in distance units per second, where one
              * distance unit is equal to the brush size.
              */
             @JvmField
-            public val VELOCITY_X_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(8)
+            public val VELOCITY_X_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(7)
             /**
              * Signed y component of pointer velocity in distance units per second, where one
              * distance unit is equal to the brush size.
              */
             @JvmField
-            public val VELOCITY_Y_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(9)
+            public val VELOCITY_Y_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND: Source = Source(8)
             /**
              * The angle of the stroke's current direction of travel in stroke space, normalized to
              * the range [0, 2π). A value of 0 indicates the direction of the positive X-axis in
              * stroke space; a value of π/2 indicates the direction of the positive Y-axis in stroke
              * space.
              */
-            @JvmField public val DIRECTION_IN_RADIANS: Source = Source(10)
+            @JvmField public val DIRECTION_IN_RADIANS: Source = Source(9)
             /**
              * The angle of the stroke's current direction of travel in stroke space, normalized to
              * the range (-π, π]. A value of 0 indicates the direction of the positive X-axis in
              * stroke space; a value of π/2 indicates the direction of the positive Y-axis in stroke
              * space.
              */
-            @JvmField public val DIRECTION_ABOUT_ZERO_IN_RADIANS: Source = Source(11)
+            @JvmField public val DIRECTION_ABOUT_ZERO_IN_RADIANS: Source = Source(10)
             /**
              * Signed x component of the normalized travel direction, with values in the range
              * [-1, 1].
              */
-            @JvmField public val NORMALIZED_DIRECTION_X: Source = Source(12)
+            @JvmField public val NORMALIZED_DIRECTION_X: Source = Source(11)
             /**
              * Signed y component of the normalized travel direction, with values in the range
              * [-1, 1].
              */
-            @JvmField public val NORMALIZED_DIRECTION_Y: Source = Source(13)
+            @JvmField public val NORMALIZED_DIRECTION_Y: Source = Source(12)
             /**
              * Distance traveled by the inputs of the current stroke, starting at 0 at the first
              * input, where one distance unit is equal to the brush size.
              */
-            @JvmField public val DISTANCE_TRAVELED_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(14)
+            @JvmField public val DISTANCE_TRAVELED_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(13)
             /**
              * The time elapsed, in seconds, from when the stroke started to when this part of the
              * stroke was drawn. The value remains fixed for any given part of the stroke once
              * drawn.
              */
-            @JvmField public val TIME_OF_INPUT_IN_SECONDS: Source = Source(15)
+            @JvmField public val TIME_OF_INPUT_IN_SECONDS: Source = Source(14)
             /**
              * The time elapsed, in millis, from when the stroke started to when this part of the
              * stroke was drawn. The value remains fixed for any given part of the stroke once
              * drawn.
              */
-            @JvmField public val TIME_OF_INPUT_IN_MILLIS: Source = Source(16)
+            @JvmField public val TIME_OF_INPUT_IN_MILLIS: Source = Source(15)
             /**
              * Distance traveled by the inputs of the current prediction, starting at 0 at the last
              * non-predicted input, where one distance unit is equal to the brush size. For cases
@@ -458,25 +435,25 @@ public class BrushBehavior(
              * min of 0.
              */
             @JvmField
-            public val PREDICTED_DISTANCE_TRAVELED_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(17)
+            public val PREDICTED_DISTANCE_TRAVELED_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(16)
             /**
              * Elapsed time of the prediction, starting at 0 at the last non-predicted input. For
              * cases where prediction hasn't started yet, we don't return a negative value, but
              * clamp to a min of 0.
              */
-            @JvmField public val PREDICTED_TIME_ELAPSED_IN_SECONDS: Source = Source(18)
+            @JvmField public val PREDICTED_TIME_ELAPSED_IN_SECONDS: Source = Source(17)
             /**
              * Elapsed time of the prediction, starting at 0 at the last non-predicted input. For
              * cases where prediction hasn't started yet, we don't return a negative value, but
              * clamp to a min of 0.
              */
-            @JvmField public val PREDICTED_TIME_ELAPSED_IN_MILLIS: Source = Source(19)
+            @JvmField public val PREDICTED_TIME_ELAPSED_IN_MILLIS: Source = Source(18)
             /**
              * The distance left to be traveled from a given input to the current last input of the
              * stroke, where one distance unit is equal to the brush size. This value changes for
              * each input as the stroke is drawn.
              */
-            @JvmField public val DISTANCE_REMAINING_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(20)
+            @JvmField public val DISTANCE_REMAINING_IN_MULTIPLES_OF_BRUSH_SIZE: Source = Source(19)
             /**
              * The amount of time that has elapsed, in seconds, since this part of the stroke was
              * drawn. This continues to increase even after all stroke inputs have completed, and
@@ -484,7 +461,7 @@ public class BrushBehavior(
              * [sourceOutOfRangeBehavior] of [OutOfRange.CLAMP], to ensure that the animation will
              * eventually end.
              */
-            @JvmField public val TIME_SINCE_INPUT_IN_SECONDS: Source = Source(21)
+            @JvmField public val TIME_SINCE_INPUT_IN_SECONDS: Source = Source(20)
             /**
              * The amount of time that has elapsed, in millis, since this part of the stroke was
              * drawn. This continues to increase even after all stroke inputs have completed, and
@@ -492,28 +469,28 @@ public class BrushBehavior(
              * [sourceOutOfRangeBehavior] of [OutOfRange.CLAMP], to ensure that the animation will
              * eventually end.
              */
-            @JvmField public val TIME_SINCE_INPUT_IN_MILLIS: Source = Source(22)
+            @JvmField public val TIME_SINCE_INPUT_IN_MILLIS: Source = Source(21)
             /**
              * Directionless pointer acceleration with values >= 0 in distance units per second
              * squared, where one distance unit is equal to the brush size.
              */
             @JvmField
             public val ACCELERATION_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND_SQUARED: Source =
-                Source(23)
+                Source(22)
             /**
              * Signed x component of pointer acceleration in distance units per second squared,
              * where one distance unit is equal to the brush size.
              */
             @JvmField
             public val ACCELERATION_X_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND_SQUARED: Source =
-                Source(24)
+                Source(23)
             /**
              * Signed y component of pointer acceleration in distance units per second squared,
              * where one distance unit is equal to the brush size.
              */
             @JvmField
             public val ACCELERATION_Y_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND_SQUARED: Source =
-                Source(25)
+                Source(24)
             /**
              * Pointer acceleration along the current direction of travel in distance units per
              * second squared, where one distance unit is equal to the brush size. A positive value
@@ -522,7 +499,7 @@ public class BrushBehavior(
              */
             @JvmField
             public val ACCELERATION_FORWARD_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND_SQUARED: Source =
-                Source(26)
+                Source(25)
             /**
              * Pointer acceleration perpendicular to the current direction of travel in distance
              * units per second squared, where one distance unit is equal to the brush size. If the
@@ -533,27 +510,27 @@ public class BrushBehavior(
              */
             @JvmField
             public val ACCELERATION_LATERAL_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND_SQUARED: Source =
-                Source(27)
+                Source(26)
             /**
              * The physical speed of the input pointer at the point in question, in centimeters per
              * second.
              */
-            @JvmField public val INPUT_SPEED_IN_CENTIMETERS_PER_SECOND: Source = Source(28)
+            @JvmField public val INPUT_SPEED_IN_CENTIMETERS_PER_SECOND: Source = Source(27)
             /**
              * Signed x component of the physical velocity of the input pointer at the point in
              * question, in centimeters per second.
              */
-            @JvmField public val INPUT_VELOCITY_X_IN_CENTIMETERS_PER_SECOND: Source = Source(29)
+            @JvmField public val INPUT_VELOCITY_X_IN_CENTIMETERS_PER_SECOND: Source = Source(28)
             /**
              * Signed y component of the physical velocity of the input pointer at the point in
              * question, in centimeters per second.
              */
-            @JvmField public val INPUT_VELOCITY_Y_IN_CENTIMETERS_PER_SECOND: Source = Source(30)
+            @JvmField public val INPUT_VELOCITY_Y_IN_CENTIMETERS_PER_SECOND: Source = Source(29)
             /**
              * The physical distance traveled by the input pointer from the start of the stroke
              * along the input path to the point in question, in centimeters.
              */
-            @JvmField public val INPUT_DISTANCE_TRAVELED_IN_CENTIMETERS: Source = Source(31)
+            @JvmField public val INPUT_DISTANCE_TRAVELED_IN_CENTIMETERS: Source = Source(30)
             /**
              * The physical distance that the input pointer would have to travel from its actual
              * last real position along its predicted path to reach the predicted point in question,
@@ -561,25 +538,25 @@ public class BrushBehavior(
              * value of zero.
              */
             @JvmField
-            public val PREDICTED_INPUT_DISTANCE_TRAVELED_IN_CENTIMETERS: Source = Source(32)
+            public val PREDICTED_INPUT_DISTANCE_TRAVELED_IN_CENTIMETERS: Source = Source(31)
             /**
              * The directionless physical acceleration of the input pointer at the point in
              * question, with values >= 0, in centimeters per second squared.
              */
             @JvmField
-            public val INPUT_ACCELERATION_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(33)
+            public val INPUT_ACCELERATION_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(32)
             /**
              * Signed x component of the physical acceleration of the input pointer, in centimeters
              * per second squared.
              */
             @JvmField
-            public val INPUT_ACCELERATION_X_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(34)
+            public val INPUT_ACCELERATION_X_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(33)
             /**
              * Signed y component of the physical acceleration of the input pointer, in centimeters
              * per second squared.
              */
             @JvmField
-            public val INPUT_ACCELERATION_Y_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(35)
+            public val INPUT_ACCELERATION_Y_IN_CENTIMETERS_PER_SECOND_SQUARED: Source = Source(34)
             /**
              * The physical acceleration of the input pointer along its current direction of travel
              * at the point in question, in centimeters per second squared. A positive value
@@ -588,7 +565,7 @@ public class BrushBehavior(
              */
             @JvmField
             public val INPUT_ACCELERATION_FORWARD_IN_CENTIMETERS_PER_SECOND_SQUARED: Source =
-                Source(36)
+                Source(35)
             /**
              * The physical acceleration of the input pointer perpendicular to its current direction
              * of travel at the point in question, in centimeters per second squared. If the X- and
@@ -599,7 +576,7 @@ public class BrushBehavior(
              */
             @JvmField
             public val INPUT_ACCELERATION_LATERAL_IN_CENTIMETERS_PER_SECOND_SQUARED: Source =
-                Source(37)
+                Source(36)
             private const val PREFIX = "BrushBehavior.Source."
         }
     }
@@ -744,7 +721,7 @@ public class BrushBehavior(
 
     /**
      * The desired behavior when an input value is outside the range defined by
-     * [sourceValueRangeLowerBound, sourceValueRangeUpperBound].
+     * [sourceValueRangeStart] and [sourceValueRangeEnd].
      */
     public class OutOfRange private constructor(@JvmField internal val value: Int) {
         internal fun toSimpleString(): String =
@@ -774,14 +751,12 @@ public class BrushBehavior(
             //
             // In this case, the range will be treated as a half-open interval, with a value exactly
             // at
-            // [sourceValueRangeUpperBound] being treated as though it was
-            // [sourceValueRangeLowerBound].
+            // [sourceValueRangeEnd] being treated as though it was [sourceValueRangeStart].
             @JvmField public val REPEAT: OutOfRange = OutOfRange(1)
             // Similar to [Repeat], but every other repetition of the bounds will be mirrored, as
             // though
             // the
-            // two elements [sourceValueRangeLowerBound] and [sourceValueRangeUpperBound] were
-            // swapped.
+            // two elements [sourceValueRangeStart] and [sourceValueRangeEnd] were swapped.
             // This means the range does not need to be treated as a half-open interval like in the
             // case
             // of [Repeat].
@@ -956,19 +931,19 @@ public class BrushBehavior(
     @JvmOverloads
     constructor(
         public val source: Source,
-        public val sourceValueRangeLowerBound: Float,
-        public val sourceValueRangeUpperBound: Float,
+        public val sourceValueRangeStart: Float,
+        public val sourceValueRangeEnd: Float,
         public val sourceOutOfRangeBehavior: OutOfRange = OutOfRange.CLAMP,
     ) : ValueNode(emptyList()) {
         init {
-            require(sourceValueRangeLowerBound.isFinite()) {
-                "sourceValueRangeLowerBound must be finite, was $sourceValueRangeLowerBound"
+            require(sourceValueRangeStart.isFinite()) {
+                "sourceValueRangeStart must be finite, was $sourceValueRangeStart"
             }
-            require(sourceValueRangeUpperBound.isFinite()) {
-                "sourceValueRangeUpperBound must be finite, was $sourceValueRangeUpperBound"
+            require(sourceValueRangeEnd.isFinite()) {
+                "sourceValueRangeEnd must be finite, was $sourceValueRangeEnd"
             }
-            require(sourceValueRangeLowerBound != sourceValueRangeUpperBound) {
-                "sourceValueRangeLowerBound and sourceValueRangeUpperBound must be distinct, both were $sourceValueRangeLowerBound"
+            require(sourceValueRangeStart != sourceValueRangeEnd) {
+                "sourceValueRangeStart and sourceValueRangeEnd must be distinct, both were $sourceValueRangeStart"
             }
         }
 
@@ -976,38 +951,38 @@ public class BrushBehavior(
             nativeAppendSourceNode(
                 nativeBehaviorPointer,
                 source.value,
-                sourceValueRangeLowerBound,
-                sourceValueRangeUpperBound,
+                sourceValueRangeStart,
+                sourceValueRangeEnd,
                 sourceOutOfRangeBehavior.value,
             )
         }
 
         override fun toString(): String =
-            "SourceNode(${source.toSimpleString()}, $sourceValueRangeLowerBound, $sourceValueRangeUpperBound, ${sourceOutOfRangeBehavior.toSimpleString()})"
+            "SourceNode(${source.toSimpleString()}, $sourceValueRangeStart, $sourceValueRangeEnd, ${sourceOutOfRangeBehavior.toSimpleString()})"
 
         override fun equals(other: Any?): Boolean {
             if (other == null || other !is SourceNode) return false
             return source == other.source &&
-                sourceValueRangeLowerBound == other.sourceValueRangeLowerBound &&
-                sourceValueRangeUpperBound == other.sourceValueRangeUpperBound &&
+                sourceValueRangeStart == other.sourceValueRangeStart &&
+                sourceValueRangeEnd == other.sourceValueRangeEnd &&
                 sourceOutOfRangeBehavior == other.sourceOutOfRangeBehavior
         }
 
         override fun hashCode(): Int {
             var result = source.hashCode()
-            result = 31 * result + sourceValueRangeLowerBound.hashCode()
-            result = 31 * result + sourceValueRangeUpperBound.hashCode()
+            result = 31 * result + sourceValueRangeStart.hashCode()
+            result = 31 * result + sourceValueRangeEnd.hashCode()
             result = 31 * result + sourceOutOfRangeBehavior.hashCode()
             return result
         }
 
         /** Appends a native `BrushBehavior::SourceNode` to a native brush behavior struct. */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendSourceNode(
             nativeBehaviorPointer: Long,
             source: Int,
-            sourceValueRangeLowerBound: Float,
-            sourceValueRangeUpperBound: Float,
+            sourceValueRangeStart: Float,
+            sourceValueRangeEnd: Float,
             sourceOutOfRangeBehavior: Int,
         )
     }
@@ -1032,10 +1007,8 @@ public class BrushBehavior(
         override fun hashCode(): Int = value.hashCode()
 
         /** Appends a native `BrushBehavior::ConstantNode` to a native brush behavior struct. */
-        private external fun nativeAppendConstantNode(
-            nativeBehaviorPointer: Long,
-            value: Float
-        ) // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
+        private external fun nativeAppendConstantNode(nativeBehaviorPointer: Long, value: Float)
     }
 
     /**
@@ -1067,7 +1040,7 @@ public class BrushBehavior(
         /**
          * Appends a native `BrushBehavior::FallbackFilterNode` to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendFallbackFilterNode(
             nativeBehaviorPointer: Long,
             isFallbackFor: Int,
@@ -1117,7 +1090,7 @@ public class BrushBehavior(
         /**
          * Appends a native `BrushBehavior::ToolTypeFilterNode` to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendToolTypeFilterNode(
             nativeBehaviorPointer: Long,
             mouseEnabled: Boolean,
@@ -1166,7 +1139,7 @@ public class BrushBehavior(
         }
 
         /** Appends a native `BrushBehavior::DampingNode` to a native brush behavior struct. */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendDampingNode(
             nativeBehaviorPointer: Long,
             dampingSource: Int,
@@ -1230,7 +1203,7 @@ public class BrushBehavior(
          * Appends a native `BrushBehavior::ResponseNode` with response curve of type
          * [EasingFunction.Predefined] to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendResponseNodePredefined(
             nativeBehaviorPointer: Long,
             predefinedResponseCurve: Int,
@@ -1240,7 +1213,7 @@ public class BrushBehavior(
          * Appends a native `BrushBehavior::ResponseNode` with response curve of type
          * [EasingFunction.CubicBezier] to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendResponseNodeCubicBezier(
             nativeBehaviorPointer: Long,
             cubicBezierX1: Float,
@@ -1253,7 +1226,7 @@ public class BrushBehavior(
          * Appends a native `BrushBehavior::ResponseNode` with response curve of type
          * [EasingFunction.Steps] to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendResponseNodeSteps(
             nativeBehaviorPointer: Long,
             stepsCount: Int,
@@ -1264,7 +1237,7 @@ public class BrushBehavior(
          * Appends a native `BrushBehavior::ResponseNode` with response curve of type
          * [EasingFunction.Linear] to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendResponseNodeLinear(
             nativeBehaviorPointer: Long,
             points: FloatArray,
@@ -1301,10 +1274,8 @@ public class BrushBehavior(
         }
 
         /** Appends a native `BrushBehavior::BinaryOpNode` to a native brush behavior struct. */
-        private external fun nativeAppendBinaryOpNode(
-            nativeBehaviorPointer: Long,
-            operation: Int
-        ) // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
+        private external fun nativeAppendBinaryOpNode(nativeBehaviorPointer: Long, operation: Int)
     }
 
     /**
@@ -1349,7 +1320,7 @@ public class BrushBehavior(
         /**
          * Appends a native `BrushBehavior::InterpolationNode` to a native brush behavior struct.
          */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendInterpolationNode(
             nativeBehaviorPointer: Long,
             interpolation: Int,
@@ -1365,19 +1336,19 @@ public class BrushBehavior(
     public class TargetNode
     constructor(
         public val target: Target,
-        public val targetModifierRangeLowerBound: Float,
-        public val targetModifierRangeUpperBound: Float,
+        public val targetModifierRangeStart: Float,
+        public val targetModifierRangeEnd: Float,
         public val input: ValueNode,
     ) : Node(listOf(input)) {
         init {
-            require(targetModifierRangeLowerBound.isFinite()) {
-                "targetModifierRangeLowerBound must be finite, was $targetModifierRangeLowerBound"
+            require(targetModifierRangeStart.isFinite()) {
+                "targetModifierRangeStart must be finite, was $targetModifierRangeStart"
             }
-            require(targetModifierRangeUpperBound.isFinite()) {
-                "targetModifierRangeUpperBound must be finite, was $targetModifierRangeUpperBound"
+            require(targetModifierRangeEnd.isFinite()) {
+                "targetModifierRangeEnd must be finite, was $targetModifierRangeEnd"
             }
-            require(targetModifierRangeLowerBound != targetModifierRangeUpperBound) {
-                "targetModifierRangeLowerBound and targetModifierRangeUpperBound must be distinct, both were $targetModifierRangeLowerBound"
+            require(targetModifierRangeStart != targetModifierRangeEnd) {
+                "targetModifierRangeStart and targetModifierRangeEnd must be distinct, both were $targetModifierRangeStart"
             }
         }
 
@@ -1385,38 +1356,38 @@ public class BrushBehavior(
             nativeAppendTargetNode(
                 nativeBehaviorPointer,
                 target.value,
-                targetModifierRangeLowerBound,
-                targetModifierRangeUpperBound,
+                targetModifierRangeStart,
+                targetModifierRangeEnd,
             )
         }
 
         override fun toString(): String =
-            "TargetNode(${target.toSimpleString()}, $targetModifierRangeLowerBound, $targetModifierRangeUpperBound, $input)"
+            "TargetNode(${target.toSimpleString()}, $targetModifierRangeStart, $targetModifierRangeEnd, $input)"
 
         override fun equals(other: Any?): Boolean {
             if (other == null || other !is TargetNode) return false
             if (other === this) return true
             return target == other.target &&
-                targetModifierRangeLowerBound == other.targetModifierRangeLowerBound &&
-                targetModifierRangeUpperBound == other.targetModifierRangeUpperBound &&
+                targetModifierRangeStart == other.targetModifierRangeStart &&
+                targetModifierRangeEnd == other.targetModifierRangeEnd &&
                 input == other.input
         }
 
         override fun hashCode(): Int {
             var result = target.hashCode()
-            result = 31 * result + targetModifierRangeLowerBound.hashCode()
-            result = 31 * result + targetModifierRangeUpperBound.hashCode()
+            result = 31 * result + targetModifierRangeStart.hashCode()
+            result = 31 * result + targetModifierRangeEnd.hashCode()
             result = 31 * result + input.hashCode()
             return result
         }
 
         /** Appends a native `BrushBehavior::TargetNode` to a native brush behavior struct. */
-        // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+        @UsedByNative
         private external fun nativeAppendTargetNode(
             nativeBehaviorPointer: Long,
             target: Int,
-            targetModifierRangeLowerBound: Float,
-            targetModifierRangeUpperBound: Float,
+            targetModifierRangeStart: Float,
+            targetModifierRangeEnd: Float,
         )
     }
 }

@@ -64,6 +64,14 @@ public object DeviceQuirksLoader {
         }
         if (
             quirkSettings.shouldEnableQuirk(
+                DisableAbortCapturesOnStopQuirk::class.java,
+                DisableAbortCapturesOnStopQuirk.isEnabled()
+            )
+        ) {
+            quirks.add(DisableAbortCapturesOnStopQuirk())
+        }
+        if (
+            quirkSettings.shouldEnableQuirk(
                 DisableAbortCapturesOnStopWithSessionProcessorQuirk::class.java,
                 DisableAbortCapturesOnStopWithSessionProcessorQuirk.isEnabled()
             )
@@ -194,6 +202,14 @@ public object DeviceQuirksLoader {
             )
         ) {
             quirks.add(SmallDisplaySizeQuirk())
+        }
+        if (
+            quirkSettings.shouldEnableQuirk(
+                PreviewUnderExposureQuirk::class.java,
+                PreviewUnderExposureQuirk.load()
+            )
+        ) {
+            quirks.add(PreviewUnderExposureQuirk)
         }
         return quirks
     }

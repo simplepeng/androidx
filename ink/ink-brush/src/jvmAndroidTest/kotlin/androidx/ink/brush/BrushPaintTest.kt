@@ -17,6 +17,7 @@
 package androidx.ink.brush
 
 import androidx.ink.geometry.Angle
+import androidx.ink.nativeloader.UsedByNative
 import com.google.common.truth.Truth.assertThat
 import kotlin.test.assertFailsWith
 import org.junit.Test
@@ -44,6 +45,8 @@ class BrushPaintTest {
                             BrushPaint.TextureSizeUnit.STROKE_COORDINATES,
                             BrushPaint.TextureOrigin.STROKE_SPACE_ORIGIN,
                             BrushPaint.TextureMapping.TILING,
+                            BrushPaint.TextureWrap.MIRROR,
+                            BrushPaint.TextureWrap.REPEAT,
                         ),
                         BrushPaint.TextureLayer(
                             colorTextureUri = makeTestTextureUri(2),
@@ -56,6 +59,8 @@ class BrushPaintTest {
                             BrushPaint.TextureSizeUnit.STROKE_COORDINATES,
                             BrushPaint.TextureOrigin.FIRST_STROKE_INPUT,
                             BrushPaint.TextureMapping.TILING,
+                            BrushPaint.TextureWrap.CLAMP,
+                            BrushPaint.TextureWrap.MIRROR,
                         ),
                     )
                 )
@@ -137,32 +142,50 @@ class BrushPaintTest {
     }
 
     @Test
-    @Suppress("Range") // Testing error cases.
     fun textureLayerConstructor_withInvalidOffsetX_throwsIllegalArgumentException() {
         val fakeValidUri = makeTestTextureUri()
         assertFailsWith<IllegalArgumentException> {
             BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetX = Float.NaN)
         }
         assertFailsWith<IllegalArgumentException> {
-            BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetX = -0.001f)
+            BrushPaint.TextureLayer(
+                fakeValidUri,
+                sizeX = 1f,
+                sizeY = 1f,
+                offsetX = Float.POSITIVE_INFINITY,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetX = 1.001f)
+            BrushPaint.TextureLayer(
+                fakeValidUri,
+                sizeX = 1f,
+                sizeY = 1f,
+                offsetX = Float.NEGATIVE_INFINITY,
+            )
         }
     }
 
     @Test
-    @Suppress("Range") // Testing error cases.
     fun textureLayerConstructor_withInvalidOffsetY_throwsIllegalArgumentException() {
         val fakeValidUri = makeTestTextureUri()
         assertFailsWith<IllegalArgumentException> {
             BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetY = Float.NaN)
         }
         assertFailsWith<IllegalArgumentException> {
-            BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetY = -0.001f)
+            BrushPaint.TextureLayer(
+                fakeValidUri,
+                sizeX = 1f,
+                sizeY = 1f,
+                offsetY = Float.POSITIVE_INFINITY,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            BrushPaint.TextureLayer(fakeValidUri, sizeX = 1f, sizeY = 1f, offsetY = 1.001f)
+            BrushPaint.TextureLayer(
+                fakeValidUri,
+                sizeX = 1f,
+                sizeY = 1f,
+                offsetY = Float.NEGATIVE_INFINITY,
+            )
         }
     }
 
@@ -224,6 +247,8 @@ class BrushPaintTest {
                 BrushPaint.TextureSizeUnit.BRUSH_SIZE,
                 BrushPaint.TextureOrigin.LAST_STROKE_INPUT,
                 BrushPaint.TextureMapping.WINDING,
+                BrushPaint.TextureWrap.MIRROR,
+                BrushPaint.TextureWrap.CLAMP,
                 BrushPaint.BlendMode.SRC_IN,
             )
 
@@ -241,6 +266,8 @@ class BrushPaintTest {
                     BrushPaint.TextureSizeUnit.BRUSH_SIZE,
                     BrushPaint.TextureOrigin.LAST_STROKE_INPUT,
                     BrushPaint.TextureMapping.WINDING,
+                    BrushPaint.TextureWrap.MIRROR,
+                    BrushPaint.TextureWrap.CLAMP,
                     BrushPaint.BlendMode.SRC_IN,
                 )
             )
@@ -260,6 +287,8 @@ class BrushPaintTest {
         assertThat(layer)
             .isNotEqualTo(layer.copy(origin = BrushPaint.TextureOrigin.FIRST_STROKE_INPUT))
         assertThat(layer).isNotEqualTo(layer.copy(mapping = BrushPaint.TextureMapping.TILING))
+        assertThat(layer).isNotEqualTo(layer.copy(wrapX = BrushPaint.TextureWrap.REPEAT))
+        assertThat(layer).isNotEqualTo(layer.copy(wrapY = BrushPaint.TextureWrap.MIRROR))
         assertThat(layer).isNotEqualTo(layer.copy(blendMode = BrushPaint.BlendMode.MODULATE))
     }
 
@@ -286,6 +315,8 @@ class BrushPaintTest {
                 BrushPaint.TextureSizeUnit.BRUSH_SIZE,
                 BrushPaint.TextureOrigin.FIRST_STROKE_INPUT,
                 BrushPaint.TextureMapping.WINDING,
+                BrushPaint.TextureWrap.MIRROR,
+                BrushPaint.TextureWrap.CLAMP,
                 BrushPaint.BlendMode.SRC_IN,
             )
         val changedSizeX = originalLayer.copy(sizeX = 999F)
@@ -307,6 +338,8 @@ class BrushPaintTest {
                     BrushPaint.TextureSizeUnit.BRUSH_SIZE,
                     BrushPaint.TextureOrigin.FIRST_STROKE_INPUT,
                     BrushPaint.TextureMapping.WINDING,
+                    BrushPaint.TextureWrap.MIRROR,
+                    BrushPaint.TextureWrap.CLAMP,
                     BrushPaint.BlendMode.SRC_IN,
                 )
             )
@@ -324,6 +357,8 @@ class BrushPaintTest {
         assertThat(string).contains("sizeUnit")
         assertThat(string).contains("origin")
         assertThat(string).contains("mapping")
+        assertThat(string).contains("wrapX")
+        assertThat(string).contains("wrapY")
         assertThat(string).contains("blendMode")
     }
 
@@ -407,7 +442,7 @@ class BrushPaintTest {
 
     // region Mapping class tests
     @Test
-    fun mappingConstants_areDistint() {
+    fun mappingConstants_areDistinct() {
         val set = setOf(BrushPaint.TextureMapping.TILING, BrushPaint.TextureMapping.WINDING)
         assertThat(set).hasSize(2)
     }
@@ -430,6 +465,46 @@ class BrushPaintTest {
             .isEqualTo("BrushPaint.TextureMapping.TILING")
         assertThat(BrushPaint.TextureMapping.WINDING.toString())
             .isEqualTo("BrushPaint.TextureMapping.WINDING")
+    }
+
+    // endregion
+
+    // region Wrap class tests
+    @Test
+    fun wrapConstants_areDistinct() {
+        val set =
+            setOf(
+                BrushPaint.TextureWrap.REPEAT,
+                BrushPaint.TextureWrap.MIRROR,
+                BrushPaint.TextureWrap.CLAMP,
+            )
+        assertThat(set).hasSize(3)
+    }
+
+    @Test
+    fun wrapHashCode_withIdenticalValues_match() {
+        assertThat(BrushPaint.TextureWrap.MIRROR.hashCode())
+            .isEqualTo(BrushPaint.TextureWrap.MIRROR.hashCode())
+        assertThat(BrushPaint.TextureWrap.CLAMP.hashCode())
+            .isEqualTo(BrushPaint.TextureWrap.CLAMP.hashCode())
+        assertThat(BrushPaint.TextureWrap.MIRROR.hashCode())
+            .isNotEqualTo(BrushPaint.TextureWrap.CLAMP.hashCode())
+    }
+
+    @Test
+    fun wrapEquals_checksEqualityOfValues() {
+        assertThat(BrushPaint.TextureWrap.CLAMP).isEqualTo(BrushPaint.TextureWrap.CLAMP)
+        assertThat(BrushPaint.TextureWrap.CLAMP).isNotEqualTo(BrushPaint.TextureWrap.REPEAT)
+    }
+
+    @Test
+    fun wrapToString_returnsCorrectString() {
+        assertThat(BrushPaint.TextureWrap.REPEAT.toString())
+            .isEqualTo("BrushPaint.TextureWrap.REPEAT")
+        assertThat(BrushPaint.TextureWrap.MIRROR.toString())
+            .isEqualTo("BrushPaint.TextureWrap.MIRROR")
+        assertThat(BrushPaint.TextureWrap.CLAMP.toString())
+            .isEqualTo("BrushPaint.TextureWrap.CLAMP")
     }
 
     // endregion
@@ -469,13 +544,18 @@ class BrushPaintTest {
         assertThat(BrushPaint.BlendMode.SRC_ATOP.toString()).contains("SRC_ATOP")
         assertThat(BrushPaint.BlendMode.SRC_IN.toString()).contains("SRC_IN")
         assertThat(BrushPaint.BlendMode.SRC_OVER.toString()).contains("SRC_OVER")
+        assertThat(BrushPaint.BlendMode.DST_OVER.toString()).contains("DST_OVER")
+        assertThat(BrushPaint.BlendMode.SRC.toString()).contains("SRC")
+        assertThat(BrushPaint.BlendMode.DST.toString()).contains("DST")
+        assertThat(BrushPaint.BlendMode.SRC_OUT.toString()).contains("SRC_OUT")
+        assertThat(BrushPaint.BlendMode.DST_ATOP.toString()).contains("DST_ATOP")
+        assertThat(BrushPaint.BlendMode.XOR.toString()).contains("XOR")
     }
 
     // endregion
 
-    private external fun matchesNativeCustomPaint(
-        brushPaintNativePointer: Long
-    ): Boolean // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
+    private external fun matchesNativeCustomPaint(brushPaintNativePointer: Long): Boolean
 
     private fun makeTestTextureUri(version: Int = 0) =
         "ink://ink/texture:test-texture" + if (version == 0) "" else ":" + version
@@ -492,6 +572,8 @@ class BrushPaintTest {
             BrushPaint.TextureSizeUnit.BRUSH_SIZE,
             BrushPaint.TextureOrigin.FIRST_STROKE_INPUT,
             BrushPaint.TextureMapping.WINDING,
+            BrushPaint.TextureWrap.REPEAT,
+            BrushPaint.TextureWrap.REPEAT,
             BrushPaint.BlendMode.SRC_IN,
         )
 

@@ -16,8 +16,11 @@
 
 package androidx.appsearch.playservicesstorage;
 
-import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
+import androidx.appsearch.app.ExperimentalAppSearchApi;
 import androidx.appsearch.app.Features;
+
+import org.jspecify.annotations.NonNull;
 
 /**
  * An implementation of {@link Features}. Feature availability is dependent on Android API
@@ -25,6 +28,7 @@ import androidx.appsearch.app.Features;
  */
 final class FeaturesImpl implements Features {
     @Override
+    @OptIn(markerClass = ExperimentalAppSearchApi.class)
     public boolean isFeatureSupported(@NonNull String feature) {
         switch (feature) {
             case Features.ADD_PERMISSIONS_AND_GET_VISIBILITY:
@@ -76,11 +80,26 @@ final class FeaturesImpl implements Features {
                 // fall through
             case Features.SCHEMA_EMBEDDING_PROPERTY_CONFIG:
                 // fall through
+            case Features.SCHEMA_EMBEDDING_QUANTIZATION:
+                // fall through
             case Features.SCHEMA_SET_DESCRIPTION:
                 // fall through
             case Features.SEARCH_SPEC_ADD_INFORMATIONAL_RANKING_EXPRESSIONS:
                 // fall through
             case Features.SEARCH_SPEC_SEARCH_STRING_PARAMETERS:
+                // fall through
+            case Features.SEARCH_SPEC_ADD_FILTER_DOCUMENT_IDS:
+                // fall through
+            case Features.LIST_FILTER_MATCH_SCORE_EXPRESSION_FUNCTION:
+                // fall through
+            case Features.SCHEMA_SCORABLE_PROPERTY_CONFIG:
+                // fall through
+            case Features.SEARCH_RESULT_PARENT_TYPES:
+                // fall through
+            case Features.SCHEMA_STRING_PROPERTY_CONFIG_DELETE_PROPAGATION_TYPE_PROPAGATE_FROM:
+                // fall through
+            case Features.INDEXER_MOBILE_APPLICATIONS:
+                // TODO(b/275592563) : Update once this features is supported.
                 // fall through
             default:
                 return false; // AppSearch features absent in GMSCore AppSearch.

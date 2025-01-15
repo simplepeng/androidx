@@ -19,6 +19,7 @@ package androidx.wear.compose.material3
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -44,7 +45,7 @@ import kotlin.math.sin
  * @param reverseDirection Reverses direction of PositionIndicator if true
  */
 @Composable
-fun LevelIndicator(
+public fun LevelIndicator(
     value: () -> Float,
     modifier: Modifier = Modifier,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
@@ -58,8 +59,7 @@ fun LevelIndicator(
     val paddingHorizontal = LevelIndicatorDefaults.edgePadding
     val radius = screenWidthDp / 2 - paddingHorizontal.value - strokeWidth.value / 2
     // Calculate indicator height based on a triangle of the top half of the sweep angle
-    // and subtract the end caps
-    val indicatorHeight = 2f * sin((0.5f * sweepAngle).toRadians()) * radius - strokeWidth.value
+    val indicatorHeight = 2f * sin((0.5f * sweepAngle).toRadians()) * radius
 
     IndicatorImpl(
         state =
@@ -98,7 +98,7 @@ fun LevelIndicator(
  * @param reverseDirection Reverses direction of PositionIndicator if true
  */
 @Composable
-fun LevelIndicator(
+public fun LevelIndicator(
     value: () -> Int,
     valueProgression: IntProgression,
     modifier: Modifier = Modifier,
@@ -121,12 +121,14 @@ fun LevelIndicator(
 }
 
 /** Contains the default values used for [LevelIndicator]. */
-object LevelIndicatorDefaults {
+public object LevelIndicatorDefaults {
     /**
      * Creates a [LevelIndicatorColors] that represents the default colors used in a
      * [LevelIndicator].
      */
-    @Composable fun colors() = MaterialTheme.colorScheme.defaultLevelIndicatorColors
+    @Composable
+    public fun colors(): LevelIndicatorColors =
+        MaterialTheme.colorScheme.defaultLevelIndicatorColors
 
     /**
      * Creates a [LevelIndicatorColors] with modified colors used in [LevelIndicator].
@@ -137,12 +139,12 @@ object LevelIndicatorDefaults {
      * @param disabledTrackColor The disabled track color.
      */
     @Composable
-    fun colors(
+    public fun colors(
         indicatorColor: Color = Color.Unspecified,
         trackColor: Color = Color.Unspecified,
         disabledIndicatorColor: Color = Color.Unspecified,
         disabledTrackColor: Color = Color.Unspecified,
-    ) =
+    ): LevelIndicatorColors =
         MaterialTheme.colorScheme.defaultLevelIndicatorColors.copy(
             indicatorColor = indicatorColor,
             trackColor = trackColor,
@@ -150,11 +152,14 @@ object LevelIndicatorDefaults {
             disabledTrackColor = disabledTrackColor,
         )
 
-    /** The sweep angle for the curved [LevelIndicator]. */
-    const val SweepAngle = 72f
+    /**
+     * The sweep angle for the curved [LevelIndicator], measured up to the centers of the stroke
+     * caps. The default value of 72 degrees equates to 20% of the circumference, i.e. 360/5.
+     */
+    public const val SweepAngle: Float = 72f
 
     /** The default stroke width for the indicator and track strokes */
-    val StrokeWidth = 6.dp
+    public val StrokeWidth: Dp = 6.dp
 
     internal val edgePadding = PaddingDefaults.edgePadding
 
@@ -185,23 +190,34 @@ object LevelIndicatorDefaults {
  * @param disabledTrackColor Color used to draw the track of [LevelIndicator] when it is not
  *   enabled.
  */
-class LevelIndicatorColors(
-    val indicatorColor: Color,
-    val trackColor: Color,
-    val disabledIndicatorColor: Color,
-    val disabledTrackColor: Color
+public class LevelIndicatorColors(
+    public val indicatorColor: Color,
+    public val trackColor: Color,
+    public val disabledIndicatorColor: Color,
+    public val disabledTrackColor: Color
 ) {
-    internal fun copy(
-        indicatorColor: Color? = null,
-        trackColor: Color? = null,
-        disabledIndicatorColor: Color? = null,
-        disabledTrackColor: Color? = null,
-    ) =
+    /**
+     * Returns a copy of this LevelIndicatorColors optionally overriding some of the values.
+     *
+     * @param indicatorColor Color used to draw the indicator of [LevelIndicator].
+     * @param trackColor Color used to draw the track of [LevelIndicator].
+     * @param disabledIndicatorColor Color used to draw the indicator of [LevelIndicator] when it is
+     *   not enabled.
+     * @param disabledTrackColor Color used to draw the track of [LevelIndicator] when it is not
+     *   enabled.
+     */
+    public fun copy(
+        indicatorColor: Color = this.indicatorColor,
+        trackColor: Color = this.trackColor,
+        disabledIndicatorColor: Color = this.disabledIndicatorColor,
+        disabledTrackColor: Color = this.disabledTrackColor,
+    ): LevelIndicatorColors =
         LevelIndicatorColors(
-            indicatorColor = indicatorColor ?: this.indicatorColor,
-            trackColor = trackColor ?: this.trackColor,
-            disabledIndicatorColor = disabledIndicatorColor ?: this.disabledIndicatorColor,
-            disabledTrackColor = disabledTrackColor ?: this.disabledTrackColor,
+            indicatorColor = indicatorColor.takeOrElse { this.indicatorColor },
+            trackColor = trackColor.takeOrElse { this.trackColor },
+            disabledIndicatorColor =
+                disabledIndicatorColor.takeOrElse { this.disabledIndicatorColor },
+            disabledTrackColor = disabledTrackColor.takeOrElse { this.disabledTrackColor },
         )
 
     /**

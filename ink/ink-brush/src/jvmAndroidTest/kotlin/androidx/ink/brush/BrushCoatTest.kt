@@ -16,6 +16,7 @@
 
 package androidx.ink.brush
 
+import androidx.ink.nativeloader.UsedByNative
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -97,28 +98,25 @@ class BrushCoatTest {
      * Creates an expected C++ BrushCoat with defaults and returns true if every property of the
      * Kotlin BrushCoat's JNI-created C++ counterpart is equivalent to the expected C++ BrushCoat.
      */
-    private external fun matchesDefaultCoat(
-        brushCoatNativePointer: Long
-    ): Boolean // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative private external fun matchesDefaultCoat(brushCoatNativePointer: Long): Boolean
 
     /**
      * Creates an expected C++ BrushCoat with custom values and returns true if every property of
      * the Kotlin BrushCoat's JNI-created C++ counterpart is equivalent to the expected C++
      * BrushCoat.
      */
-    private external fun matchesMultiBehaviorTipCoat(
-        brushCoatNativePointer: Long
-    ): Boolean // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
+    private external fun matchesMultiBehaviorTipCoat(brushCoatNativePointer: Long): Boolean
 
     /** Brush behavior with every field different from default values. */
     private val customBehavior =
         BrushBehavior(
             source = BrushBehavior.Source.TILT_IN_RADIANS,
             target = BrushBehavior.Target.HEIGHT_MULTIPLIER,
-            sourceValueRangeLowerBound = 0.2f,
-            sourceValueRangeUpperBound = .8f,
-            targetModifierRangeLowerBound = 1.1f,
-            targetModifierRangeUpperBound = 1.7f,
+            sourceValueRangeStart = 0.2f,
+            sourceValueRangeEnd = .8f,
+            targetModifierRangeStart = 1.1f,
+            targetModifierRangeEnd = 1.7f,
             sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.MIRROR,
             responseCurve = EasingFunction.Predefined.EASE_IN_OUT,
             responseTimeMillis = 1L,

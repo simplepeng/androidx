@@ -18,7 +18,6 @@ package androidx.camera.camera2.pipe.integration.impl
 
 import android.content.Context
 import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice.TEMPLATE_PREVIEW
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.OutputConfiguration
@@ -28,6 +27,7 @@ import android.media.MediaCodec
 import android.os.Build
 import androidx.annotation.GuardedBy
 import androidx.annotation.VisibleForTesting
+import androidx.camera.camera2.pipe.CameraDevices
 import androidx.camera.camera2.pipe.CameraGraph
 import androidx.camera.camera2.pipe.CameraGraph.OperatingMode
 import androidx.camera.camera2.pipe.CameraGraph.RepeatingRequestRequirementsBeforeCapture.CompletionBehavior.AT_LEAST
@@ -41,7 +41,6 @@ import androidx.camera.camera2.pipe.StreamFormat
 import androidx.camera.camera2.pipe.compat.CameraPipeKeys
 import androidx.camera.camera2.pipe.core.Log
 import androidx.camera.camera2.pipe.integration.adapter.CameraStateAdapter
-import androidx.camera.camera2.pipe.integration.adapter.EncoderProfilesProviderAdapter
 import androidx.camera.camera2.pipe.integration.adapter.SessionConfigAdapter
 import androidx.camera.camera2.pipe.integration.adapter.SupportedSurfaceCombination
 import androidx.camera.camera2.pipe.integration.adapter.ZslControl
@@ -51,6 +50,7 @@ import androidx.camera.camera2.pipe.integration.compat.quirk.CloseCameraDeviceOn
 import androidx.camera.camera2.pipe.integration.compat.quirk.CloseCaptureSessionOnDisconnectQuirk
 import androidx.camera.camera2.pipe.integration.compat.quirk.CloseCaptureSessionOnVideoQuirk
 import androidx.camera.camera2.pipe.integration.compat.quirk.DeviceQuirks
+import androidx.camera.camera2.pipe.integration.compat.quirk.DisableAbortCapturesOnStopQuirk
 import androidx.camera.camera2.pipe.integration.compat.quirk.DisableAbortCapturesOnStopWithSessionProcessorQuirk
 import androidx.camera.camera2.pipe.integration.compat.quirk.FinalizeSessionOnCloseQuirk
 import androidx.camera.camera2.pipe.integration.compat.quirk.QuickSuccessiveImageCaptureFailsRepeatingRequestQuirk
@@ -70,12 +70,12 @@ import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
 import androidx.camera.core.concurrent.CameraCoordinator
 import androidx.camera.core.impl.AttachedSurfaceInfo
-import androidx.camera.core.impl.CameraControlInternal
 import androidx.camera.core.impl.CameraInfoInternal
 import androidx.camera.core.impl.CameraInternal
 import androidx.camera.core.impl.CameraMode
 import androidx.camera.core.impl.CaptureConfig
 import androidx.camera.core.impl.DeferrableSurface
+import androidx.camera.core.impl.EncoderProfilesProvider
 import androidx.camera.core.impl.MutableOptionsBundle
 import androidx.camera.core.impl.SessionConfig
 import androidx.camera.core.impl.SessionConfig.OutputConfig.SURFACE_GROUP_ID_NONE
@@ -124,12 +124,12 @@ public class UseCaseManager
 @Inject
 constructor(
     private val cameraPipe: CameraPipe,
+    private val cameraDevices: CameraDevices,
     @GuardedBy("lock") private val cameraCoordinator: CameraCoordinator,
     private val callbackMap: CameraCallbackMap,
     private val requestListener: ComboRequestListener,
     private val cameraConfig: CameraConfig,
     private val builder: UseCaseCameraComponent.Builder,
-    private val cameraControl: CameraControlInternal,
     private val zslControl: ZslControl,
     @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN") // Java version required for Dagger
     private val controls: java.util.Set<UseCaseCameraControl>,
@@ -140,6 +140,7 @@ constructor(
     private val useCaseThreads: Provider<UseCaseThreads>,
     private val cameraInfoInternal: Provider<CameraInfoInternal>,
     private val templateParamsOverride: TemplateParamsOverride,
+    private val encoderProfilesProvider: EncoderProfilesProvider,
     context: Context,
     cameraProperties: CameraProperties,
     displayInfoManager: DisplayInfoManager,
@@ -177,11 +178,7 @@ constructor(
     }
 
     private val supportedSurfaceCombination by lazy {
-        SupportedSurfaceCombination(
-            context,
-            cameraProperties.metadata,
-            EncoderProfilesProviderAdapter(cameraConfig.cameraId.value, cameraQuirks.quirks)
-        )
+        SupportedSurfaceCombination(context, cameraProperties.metadata, encoderProfilesProvider)
     }
 
     private val dynamicRangeResolver = DynamicRangeResolver(cameraProperties.metadata)
@@ -283,7 +280,7 @@ constructor(
                 }
 
                 if (attachedUseCases.isEmpty()) {
-                    cameraControl.setZslDisabledByUserCaseConfig(false)
+                    zslControl.setZslDisabledByUserCaseConfig(false)
                 } else {
                     updateZslDisabledByUseCaseConfigStatus()
                 }
@@ -345,13 +342,12 @@ constructor(
     public suspend fun close() {
         val closingJobs =
             synchronized(lock) {
-                if (attachedUseCases.isNotEmpty()) {
-                    detach(attachedUseCases.toList())
-                }
+                closeCurrentUseCases()
                 meteringRepeating.onUnbind()
                 closingCameraJobs.toList()
             }
         closingJobs.joinAll()
+        cameraDevices.disconnectAll()
     }
 
     override fun toString(): String = "UseCaseManager<${cameraConfig.cameraId}>"
@@ -423,31 +419,9 @@ constructor(
 
     @GuardedBy("lock")
     private fun refreshAttachedUseCases(newUseCases: Set<UseCase>) {
-        val useCases = newUseCases.toList()
+        closeCurrentUseCases()
 
-        // Close prior camera graph
-        camera.let { useCaseCamera ->
-            _activeComponent = null
-            useCaseCamera?.close()?.let { closingJob ->
-                if (sessionProcessorManager != null) {
-                    // If the current session was created for extensions. We need to make sure
-                    // the closing procedures are done. This is needed because the same
-                    // SessionProcessor instance may be reused in the next extensions session, and
-                    // we need to make sure we de-initialize the current SessionProcessor session.
-                    runBlocking { closingJob.join() }
-                } else {
-                    closingCameraJobs.add(closingJob)
-                    closingJob.invokeOnCompletion {
-                        synchronized(lock) { closingCameraJobs.remove(closingJob) }
-                    }
-                }
-            }
-        }
-        sessionProcessorManager?.let {
-            it.close()
-            sessionProcessorManager = null
-            pendingSessionProcessorInitialization = false
-        }
+        val useCases = newUseCases.toList()
 
         // Update list of active useCases
         if (useCases.isEmpty()) {
@@ -512,6 +486,33 @@ constructor(
             val useCaseManagerConfig =
                 UseCaseManagerConfig(useCases, sessionConfigAdapter, graphConfig, streamConfigMap)
             this.tryResumeUseCaseManager(useCaseManagerConfig)
+        }
+    }
+
+    @GuardedBy("lock")
+    private fun closeCurrentUseCases() {
+        // Close prior camera graph
+        camera.let { useCaseCamera ->
+            _activeComponent = null
+            useCaseCamera?.close()?.let { closingJob ->
+                if (sessionProcessorManager != null) {
+                    // If the current session was created for extensions. We need to make sure
+                    // the closing procedures are done. This is needed because the same
+                    // SessionProcessor instance may be reused in the next extensions session, and
+                    // we need to make sure we de-initialize the current SessionProcessor session.
+                    runBlocking { closingJob.join() }
+                } else {
+                    closingCameraJobs.add(closingJob)
+                    closingJob.invokeOnCompletion {
+                        synchronized(lock) { closingCameraJobs.remove(closingJob) }
+                    }
+                }
+            }
+        }
+        sessionProcessorManager?.let {
+            it.close()
+            sessionProcessorManager = null
+            pendingSessionProcessorInitialization = false
         }
     }
 
@@ -846,7 +847,7 @@ constructor(
 
     private fun updateZslDisabledByUseCaseConfigStatus() {
         val disableZsl = attachedUseCases.any { it.currentConfig.isZslDisabled(false) }
-        cameraControl.setZslDisabledByUserCaseConfig(disableZsl)
+        zslControl.setZslDisabledByUserCaseConfig(disableZsl)
     }
 
     /**
@@ -878,6 +879,25 @@ constructor(
 
         public fun SessionConfig.toCamera2ImplConfig(): Camera2ImplConfig {
             return Camera2ImplConfig(implementationOptions)
+        }
+
+        // return video stabilization mode. null indicate mode unspecified.
+        public fun getVideoStabilizationModeFromCaptureConfig(captureConfig: CaptureConfig): Int? {
+            val isPreviewStabilizationMode = captureConfig.previewStabilizationMode
+            val isVideoStabilizationMode = captureConfig.videoStabilizationMode
+
+            return if (
+                isPreviewStabilizationMode == StabilizationMode.OFF ||
+                    isVideoStabilizationMode == StabilizationMode.OFF
+            ) {
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            } else if (isPreviewStabilizationMode == StabilizationMode.ON) {
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
+            } else if (isVideoStabilizationMode == StabilizationMode.ON) {
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+            } else {
+                null
+            }
         }
 
         public fun createCameraGraphConfig(
@@ -989,24 +1009,11 @@ constructor(
             val combinedFlags = createCameraGraphFlags(cameraQuirks, containsVideo, isExtensions)
 
             // Set video stabilization mode to capture request
-            var videoStabilizationMode = CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            var videoStabilizationMode: Int? = null
             if (sessionConfigAdapter.getValidSessionConfigOrNull() != null) {
                 val config =
                     sessionConfigAdapter.getValidSessionConfigOrNull()!!.repeatingCaptureConfig
-                val isPreviewStabilizationMode = config.previewStabilizationMode
-                val isVideoStabilizationMode = config.videoStabilizationMode
-
-                if (
-                    isPreviewStabilizationMode == StabilizationMode.OFF ||
-                        isVideoStabilizationMode == StabilizationMode.OFF
-                ) {
-                    videoStabilizationMode = CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
-                } else if (isPreviewStabilizationMode == StabilizationMode.ON) {
-                    videoStabilizationMode =
-                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
-                } else if (isVideoStabilizationMode == StabilizationMode.ON) {
-                    videoStabilizationMode = CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
-                }
+                videoStabilizationMode = getVideoStabilizationModeFromCaptureConfig(config)
             }
 
             // Set fps range to capture request
@@ -1016,7 +1023,9 @@ constructor(
                     if (isExtensions) {
                         set(CameraPipeKeys.ignore3ARequiredParameters, true)
                     }
-                    set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, videoStabilizationMode)
+                    videoStabilizationMode?.let {
+                        set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, it)
+                    }
                     set(
                         CameraPipeKeys.camera2CaptureRequestTag,
                         "android.hardware.camera2.CaptureRequest.setTag.CX"
@@ -1098,6 +1107,7 @@ constructor(
                         DeviceQuirks[
                             DisableAbortCapturesOnStopWithSessionProcessorQuirk::class.java] !=
                             null -> false
+                    DeviceQuirks[DisableAbortCapturesOnStopQuirk::class.java] != null -> false
                     /** @see [CameraGraph.Flags.abortCapturesOnStop] */
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> true
                     else -> false
@@ -1128,6 +1138,7 @@ constructor(
                 closeCaptureSessionOnDisconnect = shouldCloseCaptureSessionOnDisconnect,
                 closeCameraDeviceOnClose = shouldCloseCameraDeviceOnClose,
                 finalizeSessionOnCloseBehavior = shouldFinalizeSessionOnCloseBehavior,
+                enableRestartDelays = true,
             )
         }
     }

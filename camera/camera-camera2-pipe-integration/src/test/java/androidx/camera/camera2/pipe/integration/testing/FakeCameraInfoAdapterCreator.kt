@@ -28,10 +28,8 @@ import androidx.camera.camera2.pipe.CameraId
 import androidx.camera.camera2.pipe.integration.adapter.CameraControlStateAdapter
 import androidx.camera.camera2.pipe.integration.adapter.CameraInfoAdapter
 import androidx.camera.camera2.pipe.integration.adapter.CameraStateAdapter
-import androidx.camera.camera2.pipe.integration.adapter.EncoderProfilesProviderAdapter
 import androidx.camera.camera2.pipe.integration.compat.StreamConfigurationMapCompat
 import androidx.camera.camera2.pipe.integration.compat.quirk.CameraQuirks
-import androidx.camera.camera2.pipe.integration.compat.workaround.AeFpsRange
 import androidx.camera.camera2.pipe.integration.compat.workaround.MeteringRegionCorrection
 import androidx.camera.camera2.pipe.integration.compat.workaround.NoOpAutoFlashAEModeDisabler
 import androidx.camera.camera2.pipe.integration.compat.workaround.OutputSizesCorrector
@@ -48,6 +46,7 @@ import androidx.camera.camera2.pipe.integration.internal.CameraFovInfo
 import androidx.camera.camera2.pipe.testing.FakeCameraDevices
 import androidx.camera.camera2.pipe.testing.FakeCameraMetadata
 import androidx.camera.core.impl.ImageFormatConstants
+import androidx.camera.testing.impl.fakes.FakeEncoderProfilesProvider
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -124,11 +123,11 @@ object FakeCameraInfoAdapterCreator {
                 cameraProperties.metadata,
                 fakeStreamConfigurationMap,
             )
+        val fakeEncoderProfilesProvider = FakeEncoderProfilesProvider.Builder().build()
         val state3AControl =
             State3AControl(
                     cameraProperties,
                     NoOpAutoFlashAEModeDisabler,
-                    AeFpsRange(fakeCameraQuirks),
                 )
                 .apply { requestControl = fakeRequestControl }
         return CameraInfoAdapter(
@@ -152,7 +151,7 @@ object FakeCameraInfoAdapterCreator {
                 )
                 .apply { requestControl = fakeRequestControl },
             fakeCameraQuirks,
-            EncoderProfilesProviderAdapter(cameraId.value, fakeCameraQuirks.quirks),
+            fakeEncoderProfilesProvider,
             fakeStreamConfigurationMap,
             CameraFovInfo(cameraDevices, cameraProperties),
         )

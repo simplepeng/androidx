@@ -94,7 +94,11 @@ private fun KSDeclaration.asJTypeName(
     // type args of another type, (e.g. List<MyInlineType>).
     val isInline = isValueClass()
     val isKotlinType = pkg == "kotlin" || pkg.startsWith("kotlin.")
-    if ((isInline && isUsedDirectly(typeResolutionContext)) || (!isInline && isKotlinType)) {
+    val isKotlinUnitType = qualified == "kotlin.Unit"
+    if (
+        !isKotlinUnitType &&
+            ((isInline && isUsedDirectly(typeResolutionContext)) || (!isInline && isKotlinType))
+    ) {
         val jvmSignature = resolver.mapToJvmSignature(this)
         if (!jvmSignature.isNullOrBlank()) {
             return jvmSignature.typeNameFromJvmSignature()
@@ -184,7 +188,19 @@ private fun KSType.asJTypeName(
                     // e.g. IntArray
                     typeName
                 } else {
-                    JArrayTypeName.of(args.single())
+                    // `T[]` in Java is seen as `Array<out T>` in KSP and if we pass
+                    // the argument (`out T` or `? extends T`) to JavaPoet's `ArrayTypeName.of()`
+                    // directly it becomes `? extends T[]` instead of `T[]`. Since the component
+                    // type of Java arrays shouldn't have variances we remove the variance here.
+                    val arg =
+                        args.single().let {
+                            if (it is JWildcardTypeName) {
+                                it.upperBounds.single()
+                            } else {
+                                it
+                            }
+                        }
+                    JArrayTypeName.of(arg)
                 }
             }
             is JClassName -> {

@@ -16,22 +16,12 @@
 
 package androidx.security.state
 
-import android.annotation.SuppressLint
-import android.content.ContentResolver
 import android.content.Context
-import android.content.SharedPreferences
-import android.content.pm.PackageInfo
-import android.content.pm.PackageManager
-import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.annotation.RequiresApi
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.google.gson.Gson
-import java.time.LocalDate
-import java.time.ZoneOffset
-import java.util.Date
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,64 +38,7 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 class SecurityPatchStateTest {
 
-    @SuppressLint("NewApi")
-    private val updateInfo =
-        UpdateInfo.Builder()
-            .setUri("content://example.com/updateinfo")
-            .setComponent(SecurityPatchState.COMPONENT_SYSTEM.toString())
-            .setSecurityPatchLevel("2022-01-01")
-            .setPublishedDate(Date.from(LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC)))
-            .build()
-    private val mockEmptyEditor: SharedPreferences.Editor = mock<SharedPreferences.Editor> {}
-    private val mockEditor: SharedPreferences.Editor =
-        mock<SharedPreferences.Editor> {
-            on { putString(Mockito.anyString(), Mockito.anyString()) } doReturn mockEmptyEditor
-            on { remove(Mockito.anyString()) } doReturn mockEmptyEditor
-        }
-    private val mockPrefs: SharedPreferences =
-        mock<SharedPreferences> {
-            on { edit() } doReturn mockEditor
-            on { all } doReturn mapOf(Pair("key", Gson().toJson(updateInfo)))
-        }
-    private val mockPackageManager: PackageManager =
-        mock<PackageManager> {
-            on { getPackageInfo(Mockito.anyString(), Mockito.eq(0)) } doReturn
-                PackageInfo().apply { versionName = "" }
-        }
-    private val mockCursor: Cursor = mock<Cursor> {}
-    private val mockCursorWithData: Cursor =
-        mock<Cursor> {
-            on { moveToNext() } doReturn true doReturn false doReturn true doReturn false
-            on { getColumnIndexOrThrow(Mockito.eq("json")) } doReturn 123
-            on { getString(Mockito.eq(123)) } doReturn Gson().toJson(updateInfo)
-        }
-    private val mockContentResolver: ContentResolver =
-        mock<ContentResolver> {
-            on {
-                query(
-                    Uri.parse("content://com.google.android.gms.apk/updateinfo"),
-                    arrayOf("json"),
-                    null,
-                    null,
-                    null
-                )
-            } doReturn mockCursor
-            on {
-                query(
-                    Uri.parse("content://example.com/updateinfo"),
-                    arrayOf("json"),
-                    null,
-                    null,
-                    null
-                )
-            } doReturn mockCursorWithData
-        }
-    private val mockContext: Context =
-        mock<Context> {
-            on { getSharedPreferences("UpdateInfoPrefs", Context.MODE_PRIVATE) } doReturn mockPrefs
-            on { packageManager } doReturn mockPackageManager
-            on { contentResolver } doReturn mockContentResolver
-        }
+    private val mockContext: Context = mock<Context>()
     private val mockSecurityStateManager: SecurityStateManager = mock<SecurityStateManager> {}
     private lateinit var securityState: SecurityPatchState
 
@@ -120,7 +53,7 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetSecurityPatchLevelWithDateBasedComponent() {
+    fun testGetComponentSecurityPatchLevel_withSystemComponent_returnsDateBasedSpl() {
         val spl =
             securityState.getComponentSecurityPatchLevel(
                 SecurityPatchState.COMPONENT_SYSTEM,
@@ -131,7 +64,29 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetSecurityPatchLevelWithVersionedComponent() {
+    fun testGetComponentSecurityPatchLevel_withVendorComponent_whenVendorIsEnabled_returnsDateBasedSpl() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = true
+        val spl =
+            securityState.getComponentSecurityPatchLevel(
+                SecurityPatchState.COMPONENT_VENDOR,
+                "2022-01-01"
+            )
+        assertTrue(spl is SecurityPatchState.DateBasedSecurityPatchLevel)
+        assertEquals("2022-01-01", spl.toString())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testGetComponentSecurityPatchLevel_withVendorComponent_whenVendorIsDisabled_throwsException() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = false
+
+        securityState.getComponentSecurityPatchLevel(
+            SecurityPatchState.COMPONENT_VENDOR,
+            "2022-01-01"
+        )
+    }
+
+    @Test
+    fun testGetComponentSecurityPatchLevel_withKernelComponent_returnsVersionedSpl() {
         val spl =
             securityState.getComponentSecurityPatchLevel(
                 SecurityPatchState.COMPONENT_KERNEL,
@@ -142,7 +97,7 @@ class SecurityPatchStateTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun testGetSecurityPatchLevelWithInvalidDateBasedInput() {
+    fun testGetComponentSecurityPatchLevel_withInvalidDateBasedInput_throwsException() {
         securityState.getComponentSecurityPatchLevel(
             SecurityPatchState.COMPONENT_SYSTEM,
             "invalid-date"
@@ -150,7 +105,7 @@ class SecurityPatchStateTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun testGetSecurityPatchLevelWithInvalidVersionedInput() {
+    fun testGetComponentSecurityPatchLevel_withInvalidVersionedInput_throwsException() {
         securityState.getComponentSecurityPatchLevel(
             SecurityPatchState.COMPONENT_KERNEL,
             "invalid-version"
@@ -191,16 +146,16 @@ class SecurityPatchStateTest {
         """
         securityState.loadVulnerabilityReport(jsonString)
 
-        val fixes =
+        val cves =
             securityState.getPatchedCves(
                 SecurityPatchState.COMPONENT_SYSTEM,
                 SecurityPatchState.DateBasedSecurityPatchLevel(2022, 1, 1)
             )
 
-        assertEquals(1, fixes[SecurityPatchState.Severity.HIGH]?.size)
-        assertEquals(1, fixes[SecurityPatchState.Severity.MODERATE]?.size)
-        assertEquals(setOf("CVE-2020-1234"), fixes[SecurityPatchState.Severity.HIGH])
-        assertEquals(setOf("CVE-2020-5678"), fixes[SecurityPatchState.Severity.MODERATE])
+        assertEquals(1, cves[SecurityPatchState.Severity.HIGH]?.size)
+        assertEquals(1, cves[SecurityPatchState.Severity.MODERATE]?.size)
+        assertEquals(setOf("CVE-2020-1234"), cves[SecurityPatchState.Severity.HIGH])
+        assertEquals(setOf("CVE-2020-5678"), cves[SecurityPatchState.Severity.MODERATE])
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -358,7 +313,8 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetPublishedSpl_ReturnsCorrectSplForVendor() {
+    fun testGetPublishedSpl_withVendorComponent_whenVendorIsEnabled_returnsCorrectSpl() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = true
         val jsonInput =
             """
             {
@@ -386,8 +342,31 @@ class SecurityPatchStateTest {
         assertEquals(15, spl.getDay())
     }
 
+    @Test(expected = IllegalStateException::class)
+    fun testGetPublishedSpl_withVendorComponent_whenVendorIsDisabled_throwsException() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = false
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2023-05-15": [{
+                        "cve_identifiers": ["CVE-5678-1234"],
+                        "asb_identifiers": ["ASB-A-2024222"],
+                        "severity": "critical",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": {}
+            }
+        """
+                .trimIndent()
+
+        securityState.loadVulnerabilityReport(jsonInput)
+        securityState.getPublishedSecurityPatchLevel(SecurityPatchState.COMPONENT_VENDOR)
+    }
+
     @Test
-    fun testGetPublishedKernelVersions_ReturnsCorrectVersions_DifferentVersionsSameSpl() {
+    fun testGetPublishedSpl_withKernelComponent_differentVersionsSameSpl_returnsCorrectVersions() {
         val jsonInput =
             """
             {
@@ -423,7 +402,7 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetPublishedKernelVersions_ReturnsCorrectVersions_DifferentVersionsDifferentSpls() {
+    fun testGetPublishedSpl_withKernelComponent_differentVersionsDifferentSpls_returnsCorrectVersions() {
         val jsonInput =
             """
             {
@@ -462,7 +441,7 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetPublishedKernelVersions_ReturnsCorrectVersion() {
+    fun testGetPublishedSpl_withKernelComponent_returnsCorrectVersion() {
         val jsonInput =
             """
             {
@@ -497,47 +476,28 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetAvailableSpl_ReturnsUpdateWhenHigherThanCurrent() {
-        val availableSpl = SecurityPatchState.DateBasedSecurityPatchLevel(2023, 2, 1)
-        val component = SecurityPatchState.COMPONENT_SYSTEM
-        val availableUpdateJson =
+    fun testGetPublishedSpl_withKernelComponent_returnsEmptyList() {
+        val jsonInput =
             """
             {
-                "uri": "content://example.com/updateinfo",
-                "component": "SYSTEM",
-                "securityPatchLevel": "2023-02-01",
-                "publishedDate": "2023-02-01T00:00:00Z"
+                "vulnerabilities": {
+                    "2023-05-15": [{
+                        "cve_identifiers": ["CVE-5678-1234"],
+                        "asb_identifiers": ["ASB-A-2024222"],
+                        "severity": "critical",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": {}
             }
-            """
+        """
                 .trimIndent()
-        val bundle = Bundle()
-        bundle.putString("system_spl", "2023-01-01")
 
-        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
-        `when`(mockCursor.moveToNext()).thenReturn(true).thenReturn(false)
-        `when`(mockCursor.getColumnIndexOrThrow("json")).thenReturn(0)
-        `when`(mockCursor.getString(0)).thenReturn(availableUpdateJson)
-        securityState.loadVulnerabilityReport(generateMockReport("system", "2023-02-01"))
+        securityState.loadVulnerabilityReport(jsonInput)
 
-        val result = securityState.getAvailableSecurityPatchLevel(component)
-
-        assertEquals(availableSpl.toString(), result.toString())
-    }
-
-    @Test
-    fun testGetAvailableSpl_FallsBackToCurrentWhenNoHigherUpdate() {
-        val currentSpl = SecurityPatchState.DateBasedSecurityPatchLevel(2023, 5, 15)
-        val component = SecurityPatchState.COMPONENT_SYSTEM
-        val bundle = Bundle()
-        bundle.putString("system_spl", "2023-05-15")
-
-        `when`(mockCursor.moveToNext()).thenReturn(false)
-        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
-        securityState.loadVulnerabilityReport(generateMockReport("system", "2023-04-01"))
-
-        val result = securityState.getAvailableSecurityPatchLevel(component)
-
-        assertEquals(currentSpl.toString(), result.toString())
+        val versions =
+            securityState.getPublishedSecurityPatchLevel(SecurityPatchState.COMPONENT_KERNEL)
+        assertTrue(versions.isEmpty())
     }
 
     private fun generateMockReport(component: String, date: String): String {
@@ -558,28 +518,28 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testGetSecurityFixes_ReturnsNoFixes() {
-        securityState.loadVulnerabilityReport(generateMockReport("vendor", "2023-01-01"))
+    fun testGetPatchedCves_ReturnsNoCves() {
+        securityState.loadVulnerabilityReport(generateMockReport("system", "2023-01-01"))
 
         val spl = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2023-01-01")
-        val fixes = securityState.getPatchedCves(SecurityPatchState.COMPONENT_SYSTEM, spl)
+        val cves = securityState.getPatchedCves(SecurityPatchState.COMPONENT_SYSTEM_MODULES, spl)
 
-        assertEquals(null, fixes[SecurityPatchState.Severity.CRITICAL])
-        assertEquals(null, fixes[SecurityPatchState.Severity.HIGH])
-        assertEquals(null, fixes[SecurityPatchState.Severity.MODERATE])
-        assertEquals(null, fixes[SecurityPatchState.Severity.LOW])
+        assertEquals(null, cves[SecurityPatchState.Severity.CRITICAL])
+        assertEquals(null, cves[SecurityPatchState.Severity.HIGH])
+        assertEquals(null, cves[SecurityPatchState.Severity.MODERATE])
+        assertEquals(null, cves[SecurityPatchState.Severity.LOW])
 
         val spl2 = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2022-01-01")
-        val fixes2 = securityState.getPatchedCves(SecurityPatchState.COMPONENT_VENDOR, spl2)
+        val cves2 = securityState.getPatchedCves(SecurityPatchState.COMPONENT_SYSTEM, spl2)
 
-        assertEquals(null, fixes2[SecurityPatchState.Severity.CRITICAL])
-        assertEquals(null, fixes2[SecurityPatchState.Severity.HIGH])
-        assertEquals(null, fixes2[SecurityPatchState.Severity.MODERATE])
-        assertEquals(null, fixes2[SecurityPatchState.Severity.LOW])
+        assertEquals(null, cves2[SecurityPatchState.Severity.CRITICAL])
+        assertEquals(null, cves2[SecurityPatchState.Severity.HIGH])
+        assertEquals(null, cves2[SecurityPatchState.Severity.MODERATE])
+        assertEquals(null, cves2[SecurityPatchState.Severity.LOW])
     }
 
     @Test
-    fun testGetSecurityFixes_ReturnsCorrectFixesCategorizedBySeverity() {
+    fun testGetPatchedCves_withSystemComponent_returnsCorrectCvesCategorizedBySeverity() {
         val spl = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2023-01-01")
         val jsonInput =
             """
@@ -604,19 +564,62 @@ class SecurityPatchStateTest {
                 .trimIndent()
         securityState.loadVulnerabilityReport(jsonInput)
 
-        val fixes = securityState.getPatchedCves(SecurityPatchState.COMPONENT_SYSTEM, spl)
+        val cves = securityState.getPatchedCves(SecurityPatchState.COMPONENT_SYSTEM, spl)
 
-        assertEquals(2, fixes[SecurityPatchState.Severity.HIGH]?.size)
+        assertEquals(2, cves[SecurityPatchState.Severity.HIGH]?.size)
         assertEquals(
             setOf("CVE-2023-0001", "CVE-2023-0002"),
-            fixes[SecurityPatchState.Severity.HIGH]
+            cves[SecurityPatchState.Severity.HIGH]
         )
 
-        assertEquals(null, fixes[SecurityPatchState.Severity.MODERATE])
+        assertEquals(null, cves[SecurityPatchState.Severity.MODERATE])
+    }
+
+    @Test
+    fun testGetPatchedCves_withVendorComponent_whenVendorIsEnabled_returnsCorrectCvesCategorizedBySeverity() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = true
+        val spl = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2023-01-15")
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2023-01-01": [{
+                        "cve_identifiers": ["CVE-2023-0001", "CVE-2023-0002"],
+                        "asb_identifiers": ["ASB-A-2023011"],
+                        "severity": "high",
+                        "components": ["system"]
+                    }],
+                    "2023-01-15": [{
+                        "cve_identifiers": ["CVE-2023-0010"],
+                        "asb_identifiers": ["ASB-A-2023022"],
+                        "severity": "moderate",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": {}
+            }
+        """
+                .trimIndent()
+        securityState.loadVulnerabilityReport(jsonInput)
+
+        val cves = securityState.getPatchedCves(SecurityPatchState.COMPONENT_VENDOR, spl)
+
+        assertEquals(1, cves[SecurityPatchState.Severity.MODERATE]?.size)
+        assertEquals(setOf("CVE-2023-0010"), cves[SecurityPatchState.Severity.MODERATE])
+
+        assertEquals(null, cves[SecurityPatchState.Severity.HIGH])
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun testGetSecurityFixes_ThrowsExceptionForInvalidComponent() {
+    fun testGetPatchedCves_withVendorComponent_whenVendorIsDisabled_throwsException() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = false
+        val spl = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2022-01-01")
+
+        securityState.getPatchedCves(SecurityPatchState.COMPONENT_VENDOR, spl)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun testGetPatchedCves_ThrowsExceptionForInvalidComponent() {
         val spl = SecurityPatchState.DateBasedSecurityPatchLevel.fromString("2023-01-01")
 
         securityState.getPatchedCves(SecurityPatchState.COMPONENT_WEBVIEW, spl)
@@ -769,7 +772,7 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testIsDeviceFullyUpdated_returnsTrue() {
+    fun testIsDeviceFullyUpdated_withUpdatedSpl_returnsTrue() {
         val bundle = Bundle()
         bundle.putString("system_spl", "2023-01-01")
         bundle.putString("vendor_spl", "2023-02-01")
@@ -813,7 +816,97 @@ class SecurityPatchStateTest {
     }
 
     @Test
-    fun testIsDeviceFullyUpdated_returnsFalse() {
+    fun testIsDeviceFullyUpdated_withOutdatedVendorSpl_whenVendorIsEnabled_returnsFalse() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = true
+        val bundle = Bundle()
+        bundle.putString("system_spl", "2023-01-01")
+        bundle.putString("vendor_spl", "2020-01-01")
+        bundle.putString("kernel_version", "5.4.123")
+        bundle.putString("com.google.android.modulemetadata", "2023-10-05")
+
+        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
+        doReturn("2023-10-05").`when`(mockSecurityStateManager).getPackageVersion(anyString())
+
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2023-05-01": [{
+                        "cve_identifiers": ["CVE-1234-4321"],
+                        "asb_identifiers": ["ASB-A-2023111"],
+                        "severity": "high",
+                        "components": ["com.google.android.modulemetadata"]
+                    }],
+                    "2023-01-01": [{
+                        "cve_identifiers": ["CVE-1234-1321"],
+                        "asb_identifiers": ["ASB-A-2023121"],
+                        "severity": "critical",
+                        "components": ["system"]
+                    }],
+                    "2023-02-01": [{
+                        "cve_identifiers": ["CVE-1234-3321"],
+                        "asb_identifiers": ["ASB-A-2023151"],
+                        "severity": "moderate",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": { "2023-05-01": [ "5.4.123", "6.1.234.25" ] }
+            }
+        """
+                .trimIndent()
+
+        securityState.loadVulnerabilityReport(jsonInput)
+
+        assertFalse(securityState.isDeviceFullyUpdated())
+    }
+
+    @Test
+    fun testIsDeviceFullyUpdated_withOutdatedVendorSpl_whenVendorIsDisabled_returnsTrue() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = false
+        val bundle = Bundle()
+        bundle.putString("system_spl", "2023-01-01")
+        bundle.putString("vendor_spl", "2020-01-01")
+        bundle.putString("kernel_version", "5.4.123")
+        bundle.putString("com.google.android.modulemetadata", "2023-10-05")
+
+        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
+        doReturn("2023-10-05").`when`(mockSecurityStateManager).getPackageVersion(anyString())
+
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2023-05-01": [{
+                        "cve_identifiers": ["CVE-1234-4321"],
+                        "asb_identifiers": ["ASB-A-2023111"],
+                        "severity": "high",
+                        "components": ["com.google.android.modulemetadata"]
+                    }],
+                    "2023-01-01": [{
+                        "cve_identifiers": ["CVE-1234-1321"],
+                        "asb_identifiers": ["ASB-A-2023121"],
+                        "severity": "critical",
+                        "components": ["system"]
+                    }],
+                    "2023-02-01": [{
+                        "cve_identifiers": ["CVE-1234-3321"],
+                        "asb_identifiers": ["ASB-A-2023151"],
+                        "severity": "moderate",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": { "2023-05-01": [ "5.4.123", "6.1.234.25" ] }
+            }
+        """
+                .trimIndent()
+
+        securityState.loadVulnerabilityReport(jsonInput)
+
+        assertTrue(securityState.isDeviceFullyUpdated())
+    }
+
+    @Test
+    fun testIsDeviceFullyUpdated_withOutdatedSpl_returnsFalse() {
         val bundle = Bundle()
         bundle.putString("system_spl", "2022-01-01")
         bundle.putString("com.google.android.modulemetadata", "2023-10-05")
@@ -894,9 +987,7 @@ class SecurityPatchStateTest {
         `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
         doReturn(systemSpl).`when`(mockSecurityStateManager).getPackageVersion(Mockito.anyString())
 
-        assertTrue(
-            securityState.areCvesPatched(listOf("CVE-2023-0010", "CVE-2023-0001", "CVE-2023-0002"))
-        )
+        assertTrue(securityState.areCvesPatched(listOf("CVE-2023-0001", "CVE-2023-0002")))
     }
 
     @Test
@@ -987,5 +1078,93 @@ class SecurityPatchStateTest {
         assertFalse(
             securityState.areCvesPatched(listOf("CVE-2024-1010", "CVE-2023-0001", "CVE-2023-0002"))
         )
+    }
+
+    @Test
+    fun testAreCvesPatched_withVendorCve_whenVendorIsEnabled_returnsTrue() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = true
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2021-05-01": [{
+                        "cve_identifiers": ["CVE-1234-4321"],
+                        "asb_identifiers": ["ASB-A-2023111"],
+                        "severity": "high",
+                        "components": ["com.google.android.modulemetadata"]
+                    }],
+                    "2022-01-01": [{
+                        "cve_identifiers": ["CVE-2023-0001", "CVE-2023-0002"],
+                        "asb_identifiers": ["ASB-A-2023011"],
+                        "severity": "high",
+                        "components": ["system"]
+                    }],
+                    "2021-01-15": [{
+                        "cve_identifiers": ["CVE-2023-0010"],
+                        "asb_identifiers": ["ASB-A-2023022"],
+                        "severity": "moderate",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": {}
+            }
+        """
+                .trimIndent()
+        securityState.loadVulnerabilityReport(jsonInput)
+
+        val systemSpl = "2023-01-01"
+        val bundle = Bundle()
+        bundle.putString("system_spl", systemSpl)
+        bundle.putString("vendor_spl", systemSpl)
+        bundle.putString("com.google.android.modulemetadata", systemSpl)
+
+        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
+        doReturn(systemSpl).`when`(mockSecurityStateManager).getPackageVersion(Mockito.anyString())
+
+        assertTrue(securityState.areCvesPatched(listOf("CVE-2023-0010")))
+    }
+
+    @Test
+    fun testAreCvesPatched_withVendorCve_whenVendorIsDisabled_returnsFalse() {
+        SecurityPatchState.Companion.USE_VENDOR_SPL = false
+        val jsonInput =
+            """
+            {
+                "vulnerabilities": {
+                    "2021-05-01": [{
+                        "cve_identifiers": ["CVE-1234-4321"],
+                        "asb_identifiers": ["ASB-A-2023111"],
+                        "severity": "high",
+                        "components": ["com.google.android.modulemetadata"]
+                    }],
+                    "2022-01-01": [{
+                        "cve_identifiers": ["CVE-2023-0001", "CVE-2023-0002"],
+                        "asb_identifiers": ["ASB-A-2023011"],
+                        "severity": "high",
+                        "components": ["system"]
+                    }],
+                    "2021-01-15": [{
+                        "cve_identifiers": ["CVE-2023-0010"],
+                        "asb_identifiers": ["ASB-A-2023022"],
+                        "severity": "moderate",
+                        "components": ["vendor"]
+                    }]
+                },
+                "kernel_lts_versions": {}
+            }
+        """
+                .trimIndent()
+        securityState.loadVulnerabilityReport(jsonInput)
+
+        val systemSpl = "2023-01-01"
+        val bundle = Bundle()
+        bundle.putString("system_spl", systemSpl)
+        bundle.putString("vendor_spl", systemSpl)
+        bundle.putString("com.google.android.modulemetadata", systemSpl)
+
+        `when`(mockSecurityStateManager.getGlobalSecurityState(anyString())).thenReturn(bundle)
+        doReturn(systemSpl).`when`(mockSecurityStateManager).getPackageVersion(Mockito.anyString())
+
+        assertFalse(securityState.areCvesPatched(listOf("CVE-2023-0010")))
     }
 }

@@ -72,12 +72,22 @@ class BaselineProfileProjectSetupRule(
             rule = producerSetupRule,
             name = producerName,
             tempFolder = tempFolder,
-            consumer = consumer
+            consumer = consumer,
+            managedDeviceContainerName = managedDeviceContainerName,
         )
     }
 
     /** Represents a simple java library dependency module. */
     val dependency by lazy { DependencyModule(name = dependencyName) }
+
+    /** The managed device container name to use in the build.gradle file. */
+    val managedDeviceContainerName: String
+        get() =
+            if (forcedTestAgpVersion.isAtLeast(TestAgpVersion.TEST_AGP_VERSION_8_1_0)) {
+                "allDevices"
+            } else {
+                "devices"
+            }
 
     // Temp folder for temp generated files that need to be referenced by a module.
     private val tempFolder by lazy { File(rootFolder.root, "temp").apply { mkdirs() } }
@@ -278,6 +288,7 @@ data class VariantProfile(
     val profileFileLines: Map<String, List<String>>,
     val startupFileLines: Map<String, List<String>>,
     val ftlFileLines: Map<String, List<String>> = mapOf(),
+    val useGsSchema: Boolean = false,
 ) {
 
     companion object {
@@ -286,6 +297,7 @@ data class VariantProfile(
             baselineProfileLines: List<String> = listOf(),
             startupProfileLines: List<String> = listOf(),
             ftlFileLines: List<String> = listOf(),
+            useGsSchema: Boolean = false,
         ) =
             listOf(
                 VariantProfile(
@@ -294,6 +306,7 @@ data class VariantProfile(
                     profileFileLines = mapOf("myTest" to baselineProfileLines),
                     startupFileLines = mapOf("myStartupTest" to startupProfileLines),
                     ftlFileLines = mapOf("anotherTest" to ftlFileLines),
+                    useGsSchema = useGsSchema,
                 )
             )
     }
@@ -368,6 +381,7 @@ class ProducerModule(
     override val name: String,
     private val tempFolder: File,
     private val consumer: Module,
+    private val managedDeviceContainerName: String,
 ) : Module {
 
     fun setupWithFreeAndPaidFlavors(
@@ -491,10 +505,10 @@ class ProducerModule(
             if (managedDevices.isEmpty()) ""
             else
                 """
-            testOptions.managedDevices.devices {
+            testOptions.managedDevices.$managedDeviceContainerName {
             ${
-                managedDevices.joinToString("\n") {
-                    """
+                    managedDevices.joinToString("\n") {
+                        """
                 $it(ManagedVirtualDevice) {
                     device = "Pixel 6"
                     apiLevel = 31
@@ -502,8 +516,8 @@ class ProducerModule(
                 }
 
             """.trimIndent()
+                    }
                 }
-            }
             }
         """
                     .trimIndent()
@@ -555,6 +569,7 @@ class ProducerModule(
                     profileFileLines = it.profileFileLines,
                     startupFileLines = it.startupFileLines,
                     ftlProfileLines = it.ftlFileLines,
+                    useGsSchema = it.useGsSchema,
                 )
 
                 // Gradle script to injects a fake and disable the actual task execution for
@@ -614,6 +629,7 @@ class ProducerModule(
         profileFileLines: Map<String, List<String>>,
         startupFileLines: Map<String, List<String>>,
         ftlProfileLines: Map<String, List<String>>,
+        useGsSchema: Boolean,
     ) {
         // This function writes a profile file for each key of the map, containing for lines
         // the strings in the list in the value.
@@ -621,6 +637,7 @@ class ProducerModule(
             testNameToProfileLines: Map<String, List<String>>,
             fileNamePart: String,
             label: String,
+            useGsSchema: Boolean,
         ) =
             testNameToProfileLines.map {
 
@@ -633,11 +650,10 @@ class ProducerModule(
 
                 // Creates an artifact for the test result proto. Note that this can be used
                 // both as a test result artifact and a global artifact.
+                val path = (if (useGsSchema) "gs://" else "") + fakeProfileFile.absolutePath
                 TestArtifactProto.Artifact.newBuilder()
                     .setLabel(LabelProto.Label.newBuilder().setLabel(label).build())
-                    .setSourcePath(
-                        PathProto.Path.newBuilder().setPath(fakeProfileFile.absolutePath).build()
-                    )
+                    .setSourcePath(PathProto.Path.newBuilder().setPath(path).build())
                     .build()
             }
 
@@ -652,14 +668,16 @@ class ProducerModule(
                             buildProfileArtifact(
                                 testNameToProfileLines = profileFileLines,
                                 fileNamePart = "baseline-prof",
-                                label = "additionaltestoutput.benchmark.trace"
+                                label = "additionaltestoutput.benchmark.trace",
+                                useGsSchema = useGsSchema,
                             )
                         )
                         .addAllOutputArtifact(
                             buildProfileArtifact(
                                 testNameToProfileLines = startupFileLines,
                                 fileNamePart = "startup-prof",
-                                label = "additionaltestoutput.benchmark.trace"
+                                label = "additionaltestoutput.benchmark.trace",
+                                useGsSchema = useGsSchema,
                             )
                         )
                         .build()
@@ -668,7 +686,8 @@ class ProducerModule(
                     buildProfileArtifact(
                         testNameToProfileLines = ftlProfileLines,
                         fileNamePart = "baseline-prof",
-                        label = "firebase.toolOutput"
+                        label = "firebase.toolOutput",
+                        useGsSchema = useGsSchema,
                     )
                 )
                 .build()

@@ -46,7 +46,7 @@ android {
             dimension "processorConfiguration"
         }
     }
-    namespace "androidx.room.integration.kotlintestapp"
+    namespace = "androidx.room.integration.kotlintestapp"
 }
 
 dependencies {
@@ -96,8 +96,8 @@ dependencies {
     androidTestImplementation("androidx.lifecycle:lifecycle-runtime-testing:2.6.1")
     androidTestImplementation(libs.rxjava2)
     androidTestImplementation(libs.kotlinCoroutinesTest)
-    testImplementation(libs.mockitoCore4)
     androidTestImplementation("androidx.collection:collection")
+    androidTestImplementation(project(":sqlite:sqlite-bundled"))
 }
 
 room {
@@ -138,4 +138,8 @@ tasks.withType(KspTask).configureEach { kspTask ->
             provider { kspTask.name.contains("GenKotlin") }
         )
     )
+}
+
+ksp {
+    useKsp2 = true
 }

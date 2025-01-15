@@ -16,11 +16,12 @@
 
 package androidx.compose.ui.test
 
-import android.os.Build
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.InternalComposeUiApi
@@ -355,7 +356,7 @@ abstract class AndroidComposeUiTestEnvironment<A : ComponentActivity>(
      * down after running the test.
      */
     fun <R> runTest(block: AndroidComposeUiTest<A>.() -> R): R {
-        if (Build.FINGERPRINT.lowercase() == "robolectric") {
+        if (HasRobolectricFingerprint) {
             idlingStrategy = RobolectricIdlingStrategy(composeRootRegistry, composeIdlingResource)
         }
         // Need to await quiescence before registering our ComposeIdlingResource because the host
@@ -456,9 +457,15 @@ abstract class AndroidComposeUiTestEnvironment<A : ComponentActivity>(
         override val mainClock: MainTestClock
             get() = mainClockImpl
 
+        @get:RequiresApi(34)
+        @set:RequiresApi(34)
         override var accessibilityValidator: AccessibilityValidator?
             get() = testContext.platform.accessibilityValidator
             set(value) {
+                if (HasRobolectricFingerprint) {
+                    // TODO(b/332778271): Remove this warning when said bug is fixed
+                    Log.w(TAG, "Accessibility checks are currently not supported by Robolectric")
+                }
                 testContext.platform.accessibilityValidator = value
             }
 
@@ -519,10 +526,12 @@ abstract class AndroidComposeUiTestEnvironment<A : ComponentActivity>(
             idlingResourceRegistry.unregisterIdlingResource(idlingResource)
         }
 
+        @RequiresApi(34)
         override fun enableAccessibilityChecks() {
             accessibilityValidator = AccessibilityValidator().setRunChecksFromRootView(true)
         }
 
+        @RequiresApi(34)
         override fun disableAccessibilityChecks() {
             accessibilityValidator = null
         }
@@ -615,6 +624,10 @@ abstract class AndroidComposeUiTestEnvironment<A : ComponentActivity>(
             return composeRootRegistry.getRegisteredComposeRoots()
         }
     }
+
+    private companion object {
+        val TAG = "ComposeUiTest"
+    }
 }
 
 internal fun <A : ComponentActivity> ActivityScenario<A>.getActivity(): A? {
@@ -637,9 +650,17 @@ actual sealed interface ComposeUiTest : SemanticsNodeInteractionsProvider {
      *
      * The default value is `null`.
      *
+     * This requires API 34+ (Android U), and currently does not work on Robolectric.
+     *
      * @sample androidx.compose.ui.test.samples.accessibilityChecks_withAndroidComposeUiTest_sample
+     *
+     * If you have a hybrid application with both Compose and Views, and you use both Compose Test
+     * and Espresso, then you should set up accessibility checks in both frameworks and share the
+     * configuration in the following way:
+     *
+     * @sample androidx.compose.ui.test.samples.accessibilityChecks_interopWithEspresso_withTestFunction
      */
-    var accessibilityValidator: AccessibilityValidator?
+    @get:RequiresApi(34) @set:RequiresApi(34) var accessibilityValidator: AccessibilityValidator?
 
     actual fun <T> runOnUiThread(action: () -> T): T
 
@@ -661,7 +682,34 @@ actual sealed interface ComposeUiTest : SemanticsNodeInteractionsProvider {
 
     actual fun setContent(composable: @Composable () -> Unit)
 
-    actual fun enableAccessibilityChecks()
+    /**
+     * Enables accessibility checks that will be run before every action that is expected to change
+     * the UI.
+     *
+     * This will create and set an [accessibilityValidator] if there isn't one yet, or will do
+     * nothing if an `accessibilityValidator` is already set.
+     *
+     * This requires API 34+ (Android U), and currently does not work on Robolectric.
+     *
+     * @sample androidx.compose.ui.test.samples.accessibilityChecks_withComposeUiTest_sample
+     *
+     * If you have a hybrid application with both Compose and Views, and you use both Compose Test
+     * and Espresso, then you should set up accessibility checks in both frameworks and share the
+     * configuration in the following way:
+     *
+     * @sample androidx.compose.ui.test.samples.accessibilityChecks_interopWithEspresso_withTestFunction
+     * @see accessibilityValidator
+     * @see disableAccessibilityChecks
+     */
+    @RequiresApi(34) actual fun enableAccessibilityChecks()
 
-    actual fun disableAccessibilityChecks()
+    /**
+     * Disables accessibility checks.
+     *
+     * This will set the [accessibilityValidator] back to `null`.
+     *
+     * @sample androidx.compose.ui.test.samples.accessibilityChecks_withAndroidComposeUiTest_sample
+     * @see enableAccessibilityChecks
+     */
+    @RequiresApi(34) actual fun disableAccessibilityChecks()
 }

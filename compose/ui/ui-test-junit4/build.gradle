@@ -21,6 +21,8 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
 
@@ -111,11 +113,11 @@ androidXMultiplatform {
 
 
 android {
-    compileSdk 35
+    compileSdk = 35
     lintOptions {
         disable("InvalidPackage")
     }
-    namespace "androidx.compose.ui.test.junit4"
+    namespace = "androidx.compose.ui.test.junit4"
 }
 
 androidx {
@@ -125,4 +127,5 @@ androidx {
     description = "Compose testing integration with JUnit4"
     legacyDisableKotlinStrictApiMode = true
     metalavaK2UastEnabled = false
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }

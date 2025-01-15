@@ -19,14 +19,16 @@ import androidx.compose.runtime.ComposeNodeLifecycleCallback
 import androidx.compose.runtime.CompositionLocalMap
 import androidx.compose.runtime.collection.MutableVector
 import androidx.compose.runtime.collection.mutableVectorOf
+import androidx.compose.ui.ComposeUiFlags
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.CacheDrawModifierNode
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputFilter
 import androidx.compose.ui.input.pointer.PointerInputModifier
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.internal.checkPrecondition
 import androidx.compose.ui.internal.checkPreconditionNotNull
 import androidx.compose.ui.internal.requirePrecondition
@@ -47,7 +49,6 @@ import androidx.compose.ui.node.LayoutNode.LayoutState.LayingOut
 import androidx.compose.ui.node.LayoutNode.LayoutState.LookaheadLayingOut
 import androidx.compose.ui.node.LayoutNode.LayoutState.LookaheadMeasuring
 import androidx.compose.ui.node.LayoutNode.LayoutState.Measuring
-import androidx.compose.ui.node.Nodes.Draw
 import androidx.compose.ui.node.Nodes.PointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -55,6 +56,7 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.simpleIdentityToString
 import androidx.compose.ui.semantics.SemanticsConfiguration
+import androidx.compose.ui.semantics.SemanticsInfo
 import androidx.compose.ui.semantics.generateSemanticsId
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -83,12 +85,13 @@ internal class LayoutNode(
     private val isVirtual: Boolean = false,
     // The unique semantics ID that is used by all semantics modifiers attached to this LayoutNode.
     // TODO(b/281907968): Implement this with a getter that returns the compositeKeyHash.
-    override var semanticsId: Int = generateSemanticsId()
+    override var semanticsId: Int = generateSemanticsId(),
 ) :
     ComposeNodeLifecycleCallback,
     Remeasurement,
     OwnerScope,
     LayoutInfo,
+    SemanticsInfo,
     ComposeUiNode,
     InteroperableComposeUiNode,
     Owner.OnLayoutCompletedListener {
@@ -279,19 +282,8 @@ internal class LayoutNode(
      * then [instance] will become [attach]ed also. [instance] must have a `null` [parent].
      */
     internal fun insertAt(index: Int, instance: LayoutNode) {
-        checkPrecondition(instance._foldedParent == null) {
-            "Cannot insert $instance because it already has a parent." +
-                " This tree: " +
-                debugTreeToString() +
-                " Other tree: " +
-                instance._foldedParent?.debugTreeToString()
-        }
-        checkPrecondition(instance.owner == null) {
-            "Cannot insert $instance because it already has an owner." +
-                " This tree: " +
-                debugTreeToString() +
-                " Other tree: " +
-                instance.debugTreeToString()
+        checkPrecondition(instance._foldedParent == null || instance.owner == null) {
+            exceptionMessageForParentingOrOwnership(instance)
         }
 
         if (DebugChanges) {
@@ -316,6 +308,13 @@ internal class LayoutNode(
             layoutDelegate.childrenAccessingCoordinatesDuringPlacement++
         }
     }
+
+    private fun exceptionMessageForParentingOrOwnership(instance: LayoutNode) =
+        "Cannot insert $instance because it already has a parent or an owner." +
+            " This tree: " +
+            debugTreeToString() +
+            " Other tree: " +
+            instance._foldedParent?.debugTreeToString()
 
     internal fun onZSortedChildrenInvalidated() {
         if (isVirtual) {
@@ -399,42 +398,81 @@ internal class LayoutNode(
         invalidateMeasurements()
     }
 
-    private var _collapsedSemantics: SemanticsConfiguration? = null
+    override fun isTransparent(): Boolean = outerCoordinator.isTransparent()
+
+    private var isSemanticsInvalidated = false
 
     internal fun invalidateSemantics() {
-        _collapsedSemantics = null
-        // TODO(lmr): this ends up scheduling work that diffs the entire tree, but we should
-        //  eventually move to marking just this node as invalidated since we are invalidating
-        //  on a per-node level. This should preserve current behavior for now.
-        requireOwner().onSemanticsChange()
+        // Ignore calls to invalidate Semantics while semantics are being applied (b/378114177).
+        if (isCurrentlyCalculatingSemanticsConfiguration) return
+
+        if (@OptIn(ExperimentalComposeUiApi::class) !ComposeUiFlags.isSemanticAutofillEnabled) {
+            _semanticsConfiguration = null
+
+            // TODO(lmr): this ends up scheduling work that diffs the entire tree, but we should
+            //  eventually move to marking just this node as invalidated since we are invalidating
+            //  on a per-node level. This should preserve current behavior for now..
+            requireOwner().onSemanticsChange()
+        } else if (nodes.isUpdating || applyingModifierOnAttach) {
+            // We are currently updating the modifier, so just schedule an invalidation. After
+            // applying the modifier, we will notify listeners of semantics changes.
+            isSemanticsInvalidated = true
+        } else {
+            // We are not currently updating the modifier, so instead of scheduling invalidation,
+            // we update the semantics configuration and send the notification event right away.
+            val prev = _semanticsConfiguration
+            _semanticsConfiguration = calculateSemanticsConfiguration()
+            isSemanticsInvalidated = false
+
+            val owner = requireOwner()
+            owner.semanticsOwner.notifySemanticsChange(this, prev)
+
+            // This is needed for Accessibility and ContentCapture. Remove after these systems
+            // are migrated to use SemanticsInfo and SemanticListeners.
+            owner.onSemanticsChange()
+        }
     }
 
-    internal val collapsedSemantics: SemanticsConfiguration?
+    // This is needed until we completely move to the new world where we always pre-compute the
+    // semantics configuration. At that point, this can just be a property with a private setter.
+    private var _semanticsConfiguration: SemanticsConfiguration? = null
+    override val semanticsConfiguration: SemanticsConfiguration?
         get() {
             // TODO: investigate if there's a better way to approach "half attached" state and
             // whether or not deactivated nodes should be considered removed or not.
-            if (!isAttached || isDeactivated) return null
+            if (!isAttached || isDeactivated || !nodes.has(Nodes.Semantics)) return null
 
-            if (!nodes.has(Nodes.Semantics) || _collapsedSemantics != null) {
-                return _collapsedSemantics
+            @OptIn(ExperimentalComposeUiApi::class)
+            if (!ComposeUiFlags.isSemanticAutofillEnabled && _semanticsConfiguration == null) {
+                _semanticsConfiguration = calculateSemanticsConfiguration()
             }
-
-            var config = SemanticsConfiguration()
-            requireOwner().snapshotObserver.observeSemanticsReads(this) {
-                nodes.tailToHead(Nodes.Semantics) {
-                    if (it.shouldClearDescendantSemantics) {
-                        config = SemanticsConfiguration()
-                        config.isClearingSemantics = true
-                    }
-                    if (it.shouldMergeDescendantSemantics) {
-                        config.isMergingSemanticsOfDescendants = true
-                    }
-                    with(config) { with(it) { applySemantics() } }
-                }
-            }
-            _collapsedSemantics = config
-            return config
+            return _semanticsConfiguration
         }
+
+    private var isCurrentlyCalculatingSemanticsConfiguration = false
+
+    private fun calculateSemanticsConfiguration(): SemanticsConfiguration {
+        // Ignore calls to invalidate Semantics while semantics are being calculated.
+        isCurrentlyCalculatingSemanticsConfiguration = true
+
+        var config = SemanticsConfiguration()
+        requireOwner().snapshotObserver.observeSemanticsReads(this) {
+            nodes.tailToHead(Nodes.Semantics) {
+                if (it.shouldClearDescendantSemantics) {
+                    config = SemanticsConfiguration()
+                    config.isClearingSemantics = true
+                }
+                if (it.shouldMergeDescendantSemantics) {
+                    config.isMergingSemanticsOfDescendants = true
+                }
+                with(it) { config.applySemantics() }
+            }
+        }
+
+        isCurrentlyCalculatingSemanticsConfiguration = false
+
+        return config
+    }
 
     /**
      * Set the [Owner] of this LayoutNode. This LayoutNode must not already be attached. [owner]
@@ -453,10 +491,8 @@ internal class LayoutNode(
         }
         val parent = this.parent
         if (parent == null) {
-            // it is a root node and attached root nodes are always placed (as there is no parent
-            // to place them explicitly)
             measurePassDelegate.isPlaced = true
-            lookaheadPassDelegate?.let { it.isPlaced = true }
+            lookaheadPassDelegate?.onAttachedToNullParent()
         }
 
         // Use the inner coordinator of first non-virtual parent
@@ -468,10 +504,13 @@ internal class LayoutNode(
         pendingModifier?.let { applyModifier(it) }
         pendingModifier = null
 
-        if (nodes.has(Nodes.Semantics)) {
+        // Note: With precomputed semantics config, calling invalidateSemantics() before the
+        // layoutNode is marked as attached would result in semantics not being calculated..
+        @OptIn(ExperimentalComposeUiApi::class)
+        if (!ComposeUiFlags.isSemanticAutofillEnabled && nodes.has(Nodes.Semantics)) {
             invalidateSemantics()
         }
-        owner.onAttach(this)
+        owner.onPreAttach(this)
 
         // Update lookahead root when attached. For nested cases, we'll always use the
         // closest lookahead root
@@ -501,6 +540,14 @@ internal class LayoutNode(
         onAttach?.invoke(owner)
 
         layoutDelegate.updateParentData()
+
+        if (@OptIn(ExperimentalComposeUiApi::class) ComposeUiFlags.isSemanticAutofillEnabled) {
+            if (!isDeactivated && nodes.has(Nodes.Semantics)) {
+                invalidateSemantics()
+            }
+        }
+
+        owner.onPostAttach(this)
     }
 
     /**
@@ -523,7 +570,8 @@ internal class LayoutNode(
         layoutDelegate.resetAlignmentLines()
         onDetach?.invoke(owner)
 
-        if (nodes.has(Nodes.Semantics)) {
+        @OptIn(ExperimentalComposeUiApi::class)
+        if (!ComposeUiFlags.isSemanticAutofillEnabled && nodes.has(Nodes.Semantics)) {
             invalidateSemantics()
         }
         nodes.runDetachLifecycle()
@@ -536,6 +584,22 @@ internal class LayoutNode(
         depth = 0
         measurePassDelegate.onNodeDetached()
         lookaheadPassDelegate?.onNodeDetached()
+
+        // Note: Don't call invalidateSemantics() from within detach() because the modifier nodes
+        // are detached before the LayoutNode, and invalidateSemantics() can trigger a call to
+        // calculateSemanticsConfiguration() which will encounter unattached nodes. Instead, just
+        // set the semantics configuration to null over here since we know the node is detached.
+        @OptIn(ExperimentalComposeUiApi::class)
+        if (ComposeUiFlags.isSemanticAutofillEnabled && nodes.has(Nodes.Semantics)) {
+            val prev = _semanticsConfiguration
+            _semanticsConfiguration = null
+            isSemanticsInvalidated = false
+            owner.semanticsOwner.notifySemanticsChange(this, prev)
+
+            // This is needed for Accessibility and ContentCapture. Remove after these systems
+            // are migrated to use SemanticsInfo and SemanticListeners.
+            owner.onSemanticsChange()
+        }
     }
 
     private val _zSortedChildren = mutableVectorOf<LayoutNode>()
@@ -671,16 +735,7 @@ internal class LayoutNode(
                 field = value
                 onDensityOrLayoutDirectionChanged()
 
-                nodes.headToTail {
-                    if (it.isKind(PointerInput)) {
-                        (it as PointerInputModifierNode).onDensityChange()
-                    } else if (it is CacheDrawModifierNode) {
-                        // b/340662451 Replace both usages of DelegatableNode#onDensityChanged and
-                        // DelegatableNode#onLayoutDirectionChanged when API changes can be
-                        // made again
-                        it.invalidateDrawCache()
-                    }
-                }
+                nodes.headToTail { it.onDensityChange() }
             }
         }
 
@@ -691,11 +746,7 @@ internal class LayoutNode(
                 field = value
                 onDensityOrLayoutDirectionChanged()
 
-                nodes.headToTail(Draw) {
-                    if (it is CacheDrawModifierNode) {
-                        it.invalidateDrawCache()
-                    }
-                }
+                nodes.headToTail { it.onLayoutDirectionChange() }
             }
         }
 
@@ -884,6 +935,19 @@ internal class LayoutNode(
         if (lookaheadRoot == null && nodes.has(Nodes.ApproachMeasure)) {
             lookaheadRoot = this
         }
+        // Notify semantics listeners if semantics was invalidated.
+        @OptIn(ExperimentalComposeUiApi::class)
+        if (ComposeUiFlags.isSemanticAutofillEnabled && isSemanticsInvalidated) {
+            val prev = _semanticsConfiguration
+            _semanticsConfiguration = calculateSemanticsConfiguration()
+            isSemanticsInvalidated = false
+            val owner = requireOwner()
+            owner.semanticsOwner.notifySemanticsChange(this, prev)
+
+            // This is needed for Accessibility and ContentCapture. Remove after these systems
+            // are migrated to use SemanticsInfo and SemanticListeners.
+            owner.onSemanticsChange()
+        }
     }
 
     private fun resetModifierState() {
@@ -959,7 +1023,7 @@ internal class LayoutNode(
     internal fun hitTest(
         pointerPosition: Offset,
         hitTestResult: HitTestResult,
-        isTouchEvent: Boolean = false,
+        pointerType: PointerType = PointerType.Unknown,
         isInLayer: Boolean = true
     ) {
         val positionInWrapped = outerCoordinator.fromParentPosition(pointerPosition)
@@ -967,7 +1031,7 @@ internal class LayoutNode(
             NodeCoordinator.PointerInputSource,
             positionInWrapped,
             hitTestResult,
-            isTouchEvent,
+            pointerType,
             isInLayer
         )
     }
@@ -976,7 +1040,7 @@ internal class LayoutNode(
     internal fun hitTestSemantics(
         pointerPosition: Offset,
         hitSemanticsEntities: HitTestResult,
-        isTouchEvent: Boolean = true,
+        pointerType: PointerType = PointerType.Touch,
         isInLayer: Boolean = true
     ) {
         val positionInWrapped = outerCoordinator.fromParentPosition(pointerPosition)
@@ -984,7 +1048,7 @@ internal class LayoutNode(
             NodeCoordinator.SemanticsSource,
             positionInWrapped,
             hitSemanticsEntities,
-            isTouchEvent = true,
+            pointerType = PointerType.Touch,
             isInLayer = isInLayer
         )
     }
@@ -1233,19 +1297,6 @@ internal class LayoutNode(
         }
     }
 
-    private fun shouldInvalidateParentLayer(): Boolean {
-        if (nodes.has(Nodes.Draw) && !nodes.has(Nodes.Layout)) return true
-        nodes.headToTail {
-            if (it.isKind(Nodes.Layout)) {
-                if (it.requireCoordinator(Nodes.Layout).layer != null) {
-                    return false
-                }
-            }
-            if (it.isKind(Nodes.Draw)) return true
-        }
-        return true
-    }
-
     /**
      * Walks the subtree and clears all [intrinsicsUsageByParent] that this LayoutNode's measurement
      * used intrinsics on.
@@ -1301,8 +1352,11 @@ internal class LayoutNode(
         }
     }
 
-    override val parentInfo: LayoutInfo?
+    override val parentInfo: SemanticsInfo?
         get() = parent
+
+    override val childrenInfo: List<SemanticsInfo>
+        get() = children
 
     override var isDeactivated = false
         private set
@@ -1311,18 +1365,28 @@ internal class LayoutNode(
         requirePrecondition(isAttached) { "onReuse is only expected on attached node" }
         interopViewFactoryHolder?.onReuse()
         subcompositionsState?.onReuse()
+        isCurrentlyCalculatingSemanticsConfiguration = false
         if (isDeactivated) {
             isDeactivated = false
-            invalidateSemantics()
+            if (@OptIn(ExperimentalComposeUiApi::class) !ComposeUiFlags.isSemanticAutofillEnabled) {
+                invalidateSemantics()
+            }
             // we don't need to reset state as it was done when deactivated
         } else {
             resetModifierState()
         }
-        // resetModifierState detaches all nodes, so we need to re-attach them upon reuse.
+        val oldSemanticsId = semanticsId
         semanticsId = generateSemanticsId()
+        owner?.onPreLayoutNodeReused(this, oldSemanticsId)
+        // resetModifierState detaches all nodes, so we need to re-attach them upon reuse.
         nodes.markAsAttached()
         nodes.runAttachLifecycle()
+        @OptIn(ExperimentalComposeUiApi::class)
+        if (ComposeUiFlags.isSemanticAutofillEnabled && nodes.has(Nodes.Semantics)) {
+            invalidateSemantics()
+        }
         rescheduleRemeasureOrRelayout(this)
+        owner?.onPostLayoutNodeReused(this, oldSemanticsId)
     }
 
     override fun onDeactivate() {
@@ -1332,7 +1396,12 @@ internal class LayoutNode(
         resetModifierState()
         // if the node is detached the semantics were already updated without this node.
         if (isAttached) {
-            invalidateSemantics()
+            if (@OptIn(ExperimentalComposeUiApi::class) !ComposeUiFlags.isSemanticAutofillEnabled) {
+                invalidateSemantics()
+            } else {
+                _semanticsConfiguration = null
+                isSemanticsInvalidated = false
+            }
         }
         owner?.onLayoutNodeDeactivated(this)
     }

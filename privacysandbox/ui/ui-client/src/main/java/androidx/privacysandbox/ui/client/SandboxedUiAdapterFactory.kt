@@ -33,11 +33,12 @@ import androidx.annotation.RequiresApi
 import androidx.privacysandbox.ui.client.RemoteCallManager.addBinderDeathListener
 import androidx.privacysandbox.ui.client.RemoteCallManager.closeRemoteSession
 import androidx.privacysandbox.ui.client.RemoteCallManager.tryToCallRemoteObject
+import androidx.privacysandbox.ui.core.IDelegatingSandboxedUiAdapter
 import androidx.privacysandbox.ui.core.IRemoteSessionClient
 import androidx.privacysandbox.ui.core.IRemoteSessionController
 import androidx.privacysandbox.ui.core.ISandboxedUiAdapter
+import androidx.privacysandbox.ui.core.ProtocolConstants
 import androidx.privacysandbox.ui.core.SandboxedUiAdapter
-import androidx.privacysandbox.ui.core.SessionObserverFactory
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -64,7 +65,24 @@ object SandboxedUiAdapterFactory {
                 "Invalid bundle, missing $UI_ADAPTER_BINDER."
             }
         val adapterInterface = ISandboxedUiAdapter.Stub.asInterface(uiAdapterBinder)
-
+        // the following check for DelegatingAdapter check must happen before the checks for
+        // remote/local binder as the checks below have fallback to a RemoteAdapter if it's not
+        // local.
+        if (
+            uiAdapterBinder.interfaceDescriptor?.equals(
+                "androidx.privacysandbox.ui.core.IDelegatingSandboxedUiAdapter"
+            ) == true
+        ) {
+            val delegate =
+                coreLibInfo.getBundle(ProtocolConstants.delegateKey)
+                    ?: throw UnsupportedOperationException(
+                        "DelegatingAdapter must have a non null delegate"
+                    )
+            return ClientDelegatingAdapter(
+                IDelegatingSandboxedUiAdapter.Stub.asInterface(uiAdapterBinder),
+                createFromCoreLibInfo(delegate)
+            )
+        }
         val forceUseRemoteAdapter = coreLibInfo.getBoolean(TEST_ONLY_USE_REMOTE_ADAPTER)
         val isLocalBinder =
             uiAdapterBinder.queryLocalInterface(ISandboxedUiAdapter.DESCRIPTOR) != null
@@ -90,7 +108,7 @@ object SandboxedUiAdapterFactory {
 
         private val targetSessionClientClass =
             Class.forName(
-                SandboxedUiAdapter.SessionClient::class.java.name,
+                "androidx.privacysandbox.ui.core.SandboxedUiAdapter\$SessionClient",
                 /* initialize = */ false,
                 uiProviderBinder.javaClass.classLoader
             )
@@ -100,7 +118,7 @@ object SandboxedUiAdapterFactory {
         // need reflection to get hold of it.
         private val openSessionMethod: Method =
             Class.forName(
-                    SandboxedUiAdapter::class.java.name,
+                    "androidx.privacysandbox.ui.core.SandboxedUiAdapter",
                     /*initialize=*/ false,
                     uiProviderBinder.javaClass.classLoader
                 )
@@ -148,10 +166,6 @@ object SandboxedUiAdapterFactory {
             }
         }
 
-        override fun addObserverFactory(sessionObserverFactory: SessionObserverFactory) {}
-
-        override fun removeObserverFactory(sessionObserverFactory: SessionObserverFactory) {}
-
         private class SessionClientProxyHandler(
             private val origClient: SandboxedUiAdapter.SessionClient,
         ) : InvocationHandler {
@@ -195,7 +209,7 @@ object SandboxedUiAdapterFactory {
 
             private val targetClass =
                 Class.forName(
-                        SandboxedUiAdapter.Session::class.java.name,
+                        "androidx.privacysandbox.ui.core.SandboxedUiAdapter\$Session",
                         /* initialize = */ false,
                         origSession.javaClass.classLoader
                     )
@@ -221,7 +235,13 @@ object SandboxedUiAdapterFactory {
                 get() = getSignalOptionsMethod.invoke(origSession) as Set<String>
 
             override fun notifyResized(width: Int, height: Int) {
-                view.layout(0, 0, width, height)
+                val parentView = view.parent as View
+                view.layout(
+                    parentView.paddingLeft,
+                    parentView.paddingTop,
+                    parentView.paddingLeft + width,
+                    parentView.paddingTop + height
+                )
                 notifyResizedMethod.invoke(origSession, width, height)
             }
 
@@ -272,10 +292,6 @@ object SandboxedUiAdapterFactory {
                 )
             }
         }
-
-        override fun addObserverFactory(sessionObserverFactory: SessionObserverFactory) {}
-
-        override fun removeObserverFactory(sessionObserverFactory: SessionObserverFactory) {}
 
         class RemoteSessionClient(
             val context: Context,
@@ -366,15 +382,16 @@ object SandboxedUiAdapterFactory {
                 }
             }
 
-            @SuppressLint("ClassVerificationFailure")
             override fun notifyResized(width: Int, height: Int) {
+
+                val parentView = surfaceView.parent as View
 
                 val clientResizeRunnable = Runnable {
                     surfaceView.layout(
-                        /* left = */ 0,
-                        /* top = */ 0,
-                        /* right = */ width,
-                        /* bottom = */ height
+                        /* left = */ parentView.paddingLeft,
+                        /* top = */ parentView.paddingTop,
+                        /* right = */ parentView.paddingLeft + width,
+                        /* bottom = */ parentView.paddingTop + height
                     )
                 }
 

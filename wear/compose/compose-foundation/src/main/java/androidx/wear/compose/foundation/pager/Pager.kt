@@ -17,8 +17,11 @@
 package androidx.wear.compose.foundation.pager
 
 import androidx.annotation.FloatRange
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.gestures.TargetedFlingBehavior
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -32,7 +35,6 @@ import androidx.compose.foundation.pager.PagerScope
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,13 +46,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
-import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.semantics.ScrollAxisRange
 import androidx.compose.ui.semantics.horizontalScrollAxisRange
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.CustomTouchSlopProvider
 import androidx.wear.compose.foundation.HierarchicalFocusCoordinator
+import androidx.wear.compose.foundation.rememberActiveFocusRequester
+import androidx.wear.compose.foundation.rotary.RotaryScrollableBehavior
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import kotlinx.coroutines.coroutineScope
 
 /**
@@ -87,22 +92,25 @@ import kotlinx.coroutines.coroutineScope
  *   the leftmost 25% of the screen will trigger the gesture. Even when RTL mode is enabled, this
  *   parameter only ever applies to the left edge of the screen. Setting this to 0 will disable the
  *   gesture.
+ * @param rotaryScrollableBehavior Parameter for changing rotary behavior. By default rotary support
+ *   is disabled for [HorizontalPager]. It can be enabled by passing
+ *   [RotaryScrollableDefaults.snapBehavior] with pagerState parameter.
  * @param content A composable function that defines the content of each page displayed by the
  *   Pager. This is where the UI elements that should appear within each page should be placed.
  */
-@ExperimentalWearFoundationApi
 @Composable
-fun HorizontalPager(
+public fun HorizontalPager(
     state: PagerState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    beyondViewportPageCount: Int = ComposePagerDefaults.BeyondViewportPageCount,
-    flingBehavior: TargetedFlingBehavior = PagerDefaults.flingBehavior(state = state),
+    beyondViewportPageCount: Int = PagerDefaults.BeyondViewportPageCount,
+    flingBehavior: TargetedFlingBehavior = PagerDefaults.snapFlingBehavior(state = state),
     userScrollEnabled: Boolean = true,
     reverseLayout: Boolean = false,
     key: ((index: Int) -> Any)? = null,
     @FloatRange(from = 0.0, to = 1.0)
     swipeToDismissEdgeZoneFraction: Float = PagerDefaults.SwipeToDismissEdgeZoneFraction,
+    rotaryScrollableBehavior: RotaryScrollableBehavior? = null,
     content: @Composable PagerScope.(page: Int) -> Unit
 ) {
     val swipeToDismissEnabled = swipeToDismissEdgeZoneFraction != 0f
@@ -117,6 +125,15 @@ fun HorizontalPager(
             if (swipeToDismissEnabled) originalTouchSlop * CustomTouchSlopMultiplier
             else originalTouchSlop
     ) {
+        val rotaryModifier =
+            if (rotaryScrollableBehavior != null && userScrollEnabled)
+                Modifier.rotaryScrollable(
+                    behavior = rotaryScrollableBehavior,
+                    focusRequester = rememberActiveFocusRequester(),
+                    reverseDirection = reverseLayout
+                )
+            else Modifier
+
         HorizontalPager(
             state = state,
             modifier =
@@ -143,7 +160,8 @@ fun HorizontalPager(
                                 // signals system swipe to dismiss that it can take over
                                 ScrollAxisRange(value = { 0f }, maxValue = { 0f })
                             }
-                    },
+                    }
+                    .then(rotaryModifier),
             contentPadding = contentPadding,
             pageSize = PageSize.Fill,
             beyondViewportPageCount = beyondViewportPageCount,
@@ -153,12 +171,15 @@ fun HorizontalPager(
             userScrollEnabled = userScrollEnabled && allowPaging,
             reverseLayout = reverseLayout,
             key = key,
-            pageNestedScrollConnection =
-                ComposePagerDefaults.pageNestedScrollConnection(state, Orientation.Horizontal),
             snapPosition = SnapPosition.Start,
         ) { page ->
             CustomTouchSlopProvider(newTouchSlop = originalTouchSlop) {
-                FocusedPageContent(page = page, pagerState = state, content = { content(page) })
+                HierarchicalFocusCoordinator(
+                    requiresFocus = {
+                        rotaryScrollableBehavior == null && state.currentPage == page
+                    },
+                    content = { content(page) }
+                )
             }
         }
     }
@@ -168,6 +189,10 @@ fun HorizontalPager(
  * A full-screen vertically scrolling Pager optimized for Wear OS devices. This component wraps the
  * standard Compose Foundation [VerticalPager] and provides Wear-specific enhancements to improve
  * performance, usability, and adherence to Wear OS design guidelines.
+ *
+ * [VerticalPager] supports rotary input by default. Rotary input allows users to scroll through the
+ * pager's content - by using a crown or a rotating bezel on their Wear OS device. It can be
+ * modified or turned off using the [rotaryScrollableBehavior] parameter.
  *
  * Please refer to the sample to learn how to use this API.
  *
@@ -192,25 +217,38 @@ fun HorizontalPager(
  *   position will be maintained based on the key, which means if you add/remove items before the
  *   current visible item the item with the given key will be kept as the first visible one. If null
  *   is passed the position in the list will represent the key.
+ * @param rotaryScrollableBehavior Parameter for changing rotary behavior. We recommend to use
+ *   [RotaryScrollableDefaults.snapBehavior] with pagerState parameter. Passing null turns off the
+ *   rotary handling if it is not required.
  * @param content A composable function that defines the content of each page displayed by the
  *   Pager. This is where the UI elements that should appear within each page should be placed.
  */
-@ExperimentalWearFoundationApi
 @Composable
-fun VerticalPager(
+public fun VerticalPager(
     state: PagerState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    beyondViewportPageCount: Int = ComposePagerDefaults.BeyondViewportPageCount,
-    flingBehavior: TargetedFlingBehavior = PagerDefaults.flingBehavior(state = state),
+    beyondViewportPageCount: Int = PagerDefaults.BeyondViewportPageCount,
+    flingBehavior: TargetedFlingBehavior = PagerDefaults.snapFlingBehavior(state = state),
     userScrollEnabled: Boolean = true,
     reverseLayout: Boolean = false,
     key: ((index: Int) -> Any)? = null,
+    rotaryScrollableBehavior: RotaryScrollableBehavior? =
+        RotaryScrollableDefaults.snapBehavior(state),
     content: @Composable PagerScope.(page: Int) -> Unit
 ) {
+    val rotaryModifier =
+        if (rotaryScrollableBehavior != null && userScrollEnabled)
+            Modifier.rotaryScrollable(
+                behavior = rotaryScrollableBehavior,
+                focusRequester = rememberActiveFocusRequester(),
+                reverseDirection = reverseLayout
+            )
+        else Modifier
+
     VerticalPager(
         state = state,
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().then(rotaryModifier),
         contentPadding = contentPadding,
         pageSize = PageSize.Fill,
         beyondViewportPageCount = beyondViewportPageCount,
@@ -220,59 +258,86 @@ fun VerticalPager(
         userScrollEnabled = userScrollEnabled,
         reverseLayout = reverseLayout,
         key = key,
-        pageNestedScrollConnection =
-            ComposePagerDefaults.pageNestedScrollConnection(state, Orientation.Vertical),
         snapPosition = SnapPosition.Start,
     ) { page ->
-        FocusedPageContent(page = page, pagerState = state, content = { content(page) })
+        HierarchicalFocusCoordinator(
+            requiresFocus = { rotaryScrollableBehavior == null && state.currentPage == page },
+            content = { content(page) }
+        )
     }
 }
 
-/** Convenience fling behavior optimised for Wear. */
-object PagerDefaults {
+/** Contains the default values used by [Pager]. These are optimised for Wear. */
+public object PagerDefaults {
+    /**
+     * Default fling behavior for pagers on Wear, snaps at most one page at a time.
+     *
+     * @param state The [PagerState] that controls the [Pager] to which this FlingBehavior will be
+     *   applied to.
+     * @param pagerSnapDistance A way to control the snapping destination for this [Pager]. Use
+     *   [PagerSnapDistance.atMost] to define a maximum number of pages this [Pager] is allowed to
+     *   fling after scrolling is finished and fling has started.
+     * @param decayAnimationSpec The animation spec used to approach the target offset. When the
+     *   fling velocity is large enough. Large enough means large enough to naturally decay. For
+     *   single page snapping this usually never happens since there won't be enough space to run a
+     *   decay animation.
+     * @param snapAnimationSpec The animation spec used to finally snap to the position. This
+     *   animation will be often used in 2 cases: 1) There was enough space to an approach
+     *   animation, the Pager will use [snapAnimationSpec] in the last step of the animation to
+     *   settle the page into position. 2) There was not enough space to run the approach animation.
+     *   By default a Spring animation with no bounciness and high stiffness is used to ensure the
+     *   Pager settles quickly so that contents are focused and clickable.
+     * @param snapPositionalThreshold If the fling has a low velocity (e.g. slow scroll), this fling
+     *   behavior will use this snap threshold in order to determine if the pager should snap back
+     *   or move forward. Use a number between 0 and 1 as a fraction of the page size that needs to
+     *   be scrolled before the Pager considers it should move to the next page. For instance, if
+     *   snapPositionalThreshold = 0.35, it means if this pager is scrolled with a slow velocity and
+     *   the Pager scrolls more than 35% of the page size, then will jump to the next page, if not
+     *   it scrolls back. Note that any fling that has high enough velocity will *always* move to
+     *   the next page in the direction of the fling.
+     */
     @Composable
-    fun flingBehavior(
+    public fun snapFlingBehavior(
         state: PagerState,
+        pagerSnapDistance: PagerSnapDistance = PagerSnapDistance.atMost(1),
+        decayAnimationSpec: DecayAnimationSpec<Float> = rememberSplineBasedDecay(),
+        snapAnimationSpec: AnimationSpec<Float> = PagerDefaults.SnapAnimationSpec,
+        @FloatRange(from = 0.0, to = 1.0) snapPositionalThreshold: Float = 0.5f
     ): TargetedFlingBehavior {
         return ComposePagerDefaults.flingBehavior(
             state = state,
-            pagerSnapDistance = PagerSnapDistance.atMost(1),
-            snapAnimationSpec = tween(150, 0),
+            pagerSnapDistance = pagerSnapDistance,
+            decayAnimationSpec = decayAnimationSpec,
+            snapAnimationSpec = snapAnimationSpec,
+            snapPositionalThreshold = snapPositionalThreshold,
         )
     }
 
-    /** Configure Swipe To Dismiss behaviour, only applies to [HorizontalPager]. */
-    const val SwipeToDismissEdgeZoneFraction: Float = 0.15f
+    /**
+     * The recommended medium-high stiffness used by default for the spring stiffness parameter in
+     * the Pager's snap animation.
+     */
+    private val MediumHighStiffness: Float = 2000f
+
+    /**
+     * The default spring animation used for the Pager's snap animation spec - a spring based
+     * animation with medium-high stiffness and no bounce.
+     */
+    public val SnapAnimationSpec: AnimationSpec<Float> =
+        spring(Spring.DampingRatioNoBouncy, MediumHighStiffness)
+
+    /**
+     * The default value of swipeToDismissEdgeZoneFraction used to configure the size of the edge
+     * zone in a [HorizontalPager].
+     */
+    public val SwipeToDismissEdgeZoneFraction: Float = 0.15f
+
+    /**
+     * The default value of beyondViewportPageCount used to specify the number of pages to compose
+     * and layout before and after the visible pages. It does not include the pages automatically
+     * composed and laid out by the pre-fetcher in the direction of the scroll during scroll events.
+     */
+    public val BeyondViewportPageCount: Int = 0
 }
 
-@Composable
-internal fun FocusedPageContent(
-    page: Int,
-    pagerState: PagerState,
-    content: @Composable () -> Unit
-) {
-    HierarchicalFocusCoordinator(
-        requiresFocus = { pagerState.currentPage == page },
-        content = content
-    )
-}
-
-@Composable
-private fun CustomTouchSlopProvider(newTouchSlop: Float, content: @Composable () -> Unit) {
-    CompositionLocalProvider(
-        value =
-            LocalViewConfiguration provides
-                CustomTouchSlop(newTouchSlop, LocalViewConfiguration.current),
-        content = content
-    )
-}
-
-private class CustomTouchSlop(
-    private val customTouchSlop: Float,
-    currentConfiguration: ViewConfiguration
-) : ViewConfiguration by currentConfiguration {
-    override val touchSlop: Float
-        get() = customTouchSlop
-}
-
-internal const val CustomTouchSlopMultiplier = 1.10f
+internal val CustomTouchSlopMultiplier = 1.10f

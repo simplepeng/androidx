@@ -25,8 +25,10 @@ import androidx.compose.runtime.ComposeNodeLifecycleCallback
 import androidx.compose.runtime.RecomposeScopeImpl
 import androidx.compose.runtime.RememberManager
 import androidx.compose.runtime.RememberObserver
+import androidx.compose.runtime.RememberObserverHolder
 import androidx.compose.runtime.Stack
-import androidx.compose.runtime.snapshots.fastForEach
+import androidx.compose.runtime.collection.MutableVector
+import androidx.compose.runtime.collection.mutableVectorOf
 
 /**
  * Used as a placeholder for paused compositions to ensure the remembers are dispatch in the correct
@@ -37,12 +39,13 @@ import androidx.compose.runtime.snapshots.fastForEach
  */
 internal class PausedCompositionRemembers(private val abandoning: MutableSet<RememberObserver>) :
     RememberObserver {
-    val pausedRemembers = mutableListOf<RememberObserver>()
+    val pausedRemembers = mutableVectorOf<RememberObserverHolder>()
 
     override fun onRemembered() {
-        pausedRemembers.fastForEach {
-            abandoning.remove(it)
-            it.onRemembered()
+        pausedRemembers.forEach {
+            val wrapped = it.wrapped
+            abandoning.remove(wrapped)
+            wrapped.onRemembered()
         }
     }
 
@@ -55,10 +58,10 @@ internal class PausedCompositionRemembers(private val abandoning: MutableSet<Rem
 /** Helper for collecting remember observers for later strictly ordered dispatch. */
 internal class RememberEventDispatcher(private val abandoning: MutableSet<RememberObserver>) :
     RememberManager {
-    private val remembering = mutableListOf<RememberObserver>()
+    private val remembering = mutableVectorOf<RememberObserverHolder>()
     private var currentRememberingList = remembering
-    private val leaving = mutableListOf<Any>()
-    private val sideEffects = mutableListOf<() -> Unit>()
+    private val leaving = mutableVectorOf<Any>()
+    private val sideEffects = mutableVectorOf<() -> Unit>()
     private var releasing: MutableScatterSet<ComposeNodeLifecycleCallback>? = null
     private var pausedPlaceholders:
         MutableScatterMap<RecomposeScopeImpl, PausedCompositionRemembers>? =
@@ -66,14 +69,14 @@ internal class RememberEventDispatcher(private val abandoning: MutableSet<Rememb
     private val pending = mutableListOf<Any>()
     private val priorities = MutableIntList()
     private val afters = MutableIntList()
-    private var nestedRemembersLists: Stack<MutableList<RememberObserver>>? = null
+    private var nestedRemembersLists: Stack<MutableVector<RememberObserverHolder>>? = null
 
-    override fun remembering(instance: RememberObserver) {
+    override fun remembering(instance: RememberObserverHolder) {
         currentRememberingList.add(instance)
     }
 
     override fun forgetting(
-        instance: RememberObserver,
+        instance: RememberObserverHolder,
         endRelativeOrder: Int,
         priority: Int,
         endRelativeAfter: Int
@@ -113,14 +116,16 @@ internal class RememberEventDispatcher(private val abandoning: MutableSet<Rememb
             ?: mutableScatterMapOf<RecomposeScopeImpl, PausedCompositionRemembers>().also {
                 pausedPlaceholders = it
             })[scope] = pausedPlaceholder
-        this.currentRememberingList.add(pausedPlaceholder)
+        this.currentRememberingList.add(RememberObserverHolder(pausedPlaceholder, after = null))
     }
 
     override fun startResumingScope(scope: RecomposeScopeImpl) {
         val placeholder = pausedPlaceholders?.get(scope)
         if (placeholder != null) {
             (nestedRemembersLists
-                    ?: Stack<MutableList<RememberObserver>>().also { nestedRemembersLists = it })
+                    ?: Stack<MutableVector<RememberObserverHolder>>().also {
+                        nestedRemembersLists = it
+                    })
                 .push(currentRememberingList)
             currentRememberingList = placeholder.pausedRemembers
         }
@@ -147,9 +152,10 @@ internal class RememberEventDispatcher(private val abandoning: MutableSet<Rememb
                 val releasing = releasing
                 for (i in leaving.size - 1 downTo 0) {
                     val instance = leaving[i]
-                    if (instance is RememberObserver) {
-                        abandoning.remove(instance)
-                        instance.onForgotten()
+                    if (instance is RememberObserverHolder) {
+                        val wrapped = instance.wrapped
+                        abandoning.remove(wrapped)
+                        wrapped.onForgotten()
                     }
                     if (instance is ComposeNodeLifecycleCallback) {
                         // node callbacks are in the same queue as forgets to ensure ordering
@@ -169,17 +175,18 @@ internal class RememberEventDispatcher(private val abandoning: MutableSet<Rememb
         }
     }
 
-    private fun dispatchRememberList(list: List<RememberObserver>) {
-        list.fastForEach { instance ->
-            abandoning.remove(instance)
-            instance.onRemembered()
+    private fun dispatchRememberList(list: MutableVector<RememberObserverHolder>) {
+        list.forEach { instance ->
+            val wrapped = instance.wrapped
+            abandoning.remove(wrapped)
+            wrapped.onRemembered()
         }
     }
 
     fun dispatchSideEffects() {
         if (sideEffects.isNotEmpty()) {
             trace("Compose:sideeffects") {
-                sideEffects.fastForEach { sideEffect -> sideEffect() }
+                sideEffects.forEach { sideEffect -> sideEffect() }
                 sideEffects.clear()
             }
         }

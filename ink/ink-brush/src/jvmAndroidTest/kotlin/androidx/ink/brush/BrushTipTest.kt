@@ -17,6 +17,7 @@
 package androidx.ink.brush
 
 import androidx.ink.geometry.Angle
+import androidx.ink.nativeloader.UsedByNative
 import com.google.common.truth.Truth.assertThat
 import kotlin.IllegalArgumentException
 import kotlin.test.assertFailsWith
@@ -32,10 +33,10 @@ class BrushTipTest {
         BrushBehavior(
             source = BrushBehavior.Source.TILT_IN_RADIANS,
             target = BrushBehavior.Target.HEIGHT_MULTIPLIER,
-            sourceValueRangeLowerBound = 0.2f,
-            sourceValueRangeUpperBound = .8f,
-            targetModifierRangeLowerBound = 1.1f,
-            targetModifierRangeUpperBound = 1.7f,
+            sourceValueRangeStart = 0.2f,
+            sourceValueRangeEnd = .8f,
+            targetModifierRangeStart = 1.1f,
+            targetModifierRangeEnd = 1.7f,
             sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.MIRROR,
             responseCurve = EasingFunction.Predefined.EASE_IN_OUT,
             responseTimeMillis = 1L,
@@ -127,12 +128,12 @@ class BrushTipTest {
         val lowError =
             assertFailsWith<IllegalArgumentException> { BrushTip(slant = -Angle.HALF_TURN_RADIANS) }
         assertThat(lowError).hasMessageThat().contains("slant")
-        assertThat(lowError).hasMessageThat().contains("interval [-pi/2, pi/2]")
+        assertThat(lowError).hasMessageThat().contains("interval [-π/2, π/2]")
 
         val highError =
             assertFailsWith<IllegalArgumentException> { BrushTip(slant = Angle.HALF_TURN_RADIANS) }
         assertThat(highError).hasMessageThat().contains("slant")
-        assertThat(highError).hasMessageThat().contains("interval [-pi/2, pi/2]")
+        assertThat(highError).hasMessageThat().contains("interval [-π/2, π/2]")
     }
 
     @Test
@@ -364,14 +365,14 @@ class BrushTipTest {
      * Creates an expected C++ BrushTip with no behaviors and returns true if every property of the
      * Kotlin BrushTip's JNI-created C++ counterpart is equivalent to the expected C++ BrushTip.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
     private external fun matchesNativeNoBehaviorTip(nativePointerToActualBrushTip: Long): Boolean
 
     /**
      * Creates an expected C++ BrushTip with a single behavior and returns true if every property of
      * the Kotlin BrushTip's JNI-created C++ counterpart is equivalent to the expected C++ BrushTip.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
     private external fun matchesNativeSingleBehaviorTip(
         nativePointerToActualBrushTip: Long
     ): Boolean
@@ -381,6 +382,6 @@ class BrushTipTest {
      * of the Kotlin BrushTip's JNI-created C++ counterpart is equivalent to the expected C++
      * BrushTip.
      */
-    // TODO: b/355248266 - @Keep must go in Proguard config file instead.
+    @UsedByNative
     private external fun matchesNativeMultiBehaviorTip(nativePointerToActualBrushTip: Long): Boolean
 }

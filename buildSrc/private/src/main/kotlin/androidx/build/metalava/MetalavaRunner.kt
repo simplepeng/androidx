@@ -18,8 +18,8 @@ package androidx.build.metalava
 
 import androidx.build.Version
 import androidx.build.checkapi.ApiLocation
+import androidx.build.checkapi.CompilationInputs
 import androidx.build.getLibraryByName
-import androidx.build.java.JavaCompileInputs
 import androidx.build.logging.TERMINAL_RED
 import androidx.build.logging.TERMINAL_RESET
 import java.io.ByteArrayOutputStream
@@ -187,11 +187,15 @@ fun getApiLintArgs(targetsJavaConsumers: Boolean): List<String> {
                 )
                 .joinToString()
         )
-    if (targetsJavaConsumers) {
-        args.addAll(listOf("--error", "MissingJvmstatic", "--error", "ArrayReturn"))
-    } else {
-        args.addAll(listOf("--hide", "MissingJvmstatic", "--hide", "ArrayReturn"))
-    }
+    val javaOnlyIssues = listOf("MissingJvmstatic", "ArrayReturn", "ValueClassDefinition")
+    val javaOnlyErrorLevel =
+        if (targetsJavaConsumers) {
+            "--error"
+        } else {
+            "--hide"
+        }
+    args.add(javaOnlyErrorLevel)
+    args.add(javaOnlyIssues.joinToString())
     return args
 }
 
@@ -201,20 +205,21 @@ internal fun getGenerateApiLevelsArgs(
     currentVersion: Version,
     outputLocation: File
 ): List<String> {
-    val versions = getVersionsForApiLevels(apiFiles) + currentVersion
+    val versions = getVersionsForApiLevels(apiFiles)
 
-    val args =
-        listOf(
-            "--generate-api-version-history",
-            outputLocation.absolutePath,
-            "--api-version-names",
-            versions.joinToString(" ")
-        )
-
-    return if (apiFiles.isEmpty()) {
-        args
-    } else {
-        args + listOf("--api-version-signature-files", apiFiles.joinToString(":"))
+    return buildList {
+        add("--generate-api-version-history")
+        add(outputLocation.absolutePath)
+        if (versions.isNotEmpty()) {
+            add("--api-version-names")
+            add(versions.joinToString(" "))
+        }
+        add("--current-version")
+        add(currentVersion.toString())
+        if (apiFiles.isNotEmpty()) {
+            add("--api-version-signature-files")
+            add(apiFiles.joinToString(":"))
+        }
     }
 }
 
@@ -236,9 +241,10 @@ sealed class ApiLintMode {
 /**
  * Generates all of the specified api files, as well as a version history JSON for the public API.
  */
-fun generateApi(
+internal fun generateApi(
     metalavaClasspath: FileCollection,
-    files: JavaCompileInputs,
+    projectXml: File?,
+    files: CompilationInputs,
     apiLocation: ApiLocation,
     apiLintMode: ApiLintMode,
     includeRestrictToLibraryGroupApis: Boolean,
@@ -261,6 +267,7 @@ fun generateApi(
     generateApiConfigs.forEach { (generateApiMode, apiLintMode) ->
         generateApi(
             metalavaClasspath,
+            projectXml,
             files,
             apiLocation,
             generateApiMode,
@@ -280,7 +287,8 @@ fun generateApi(
  */
 private fun generateApi(
     metalavaClasspath: FileCollection,
-    files: JavaCompileInputs,
+    projectXml: File?,
+    files: CompilationInputs,
     outputLocation: ApiLocation,
     generateApiMode: GenerateApiMode,
     apiLintMode: ApiLintMode,
@@ -294,8 +302,8 @@ private fun generateApi(
         getGenerateApiArgs(
             files.bootClasspath,
             files.dependencyClasspath,
+            projectXml,
             files.sourcePaths.files,
-            files.commonModuleSourcePaths.files,
             outputLocation,
             generateApiMode,
             apiLintMode,
@@ -312,8 +320,8 @@ private fun generateApi(
 fun getGenerateApiArgs(
     bootClasspath: FileCollection,
     dependencyClasspath: FileCollection,
+    projectXml: File?,
     sourcePaths: Collection<File>,
-    commonModuleSourcePaths: Collection<File>,
     outputLocation: ApiLocation?,
     generateApiMode: GenerateApiMode,
     apiLintMode: ApiLintMode,
@@ -323,16 +331,21 @@ fun getGenerateApiArgs(
     // generate public API txt
     val args =
         mutableListOf(
-            "--classpath",
-            (bootClasspath.files + dependencyClasspath.files).joinToString(File.pathSeparator),
             "--source-path",
             sourcePaths.filter { it.exists() }.joinToString(File.pathSeparator),
         )
 
-    val existentCommonModuleSourcePaths = commonModuleSourcePaths.filter { it.exists() }
-    if (existentCommonModuleSourcePaths.isNotEmpty()) {
-        args += listOf("--common-source-path", existentCommonModuleSourcePaths.joinToString(":"))
-    }
+    // If there's a project xml file, the classpath isn't needed
+    args +=
+        if (projectXml != null) {
+            listOf("--project", projectXml.path)
+        } else {
+            listOf(
+                "--classpath",
+                (bootClasspath.files + dependencyClasspath.files).joinToString(File.pathSeparator)
+            )
+        }
+
     args += listOf("--format=v4", "--warnings-as-errors")
 
     pathToManifest?.let { args += listOf("--manifest", pathToManifest) }

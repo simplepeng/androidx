@@ -27,6 +27,7 @@ import androidx.build.checkapi.getBcvFileDirectory
 import androidx.build.checkapi.getBuiltBcvFileDirectory
 import androidx.build.checkapi.getRequiredCompatibilityApiFileFromDir
 import androidx.build.checkapi.shouldWriteVersionedApiFile
+import androidx.build.getLibraryByName
 import androidx.build.metalava.UpdateApiTask
 import androidx.build.uptodatedness.cacheEvenIfNoOutputs
 import androidx.build.version
@@ -42,6 +43,8 @@ import kotlinx.validation.toKlibTarget
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
 import org.gradle.api.file.RegularFile
 import org.gradle.api.file.RegularFileProperty
@@ -60,12 +63,14 @@ private const val CHECK_RELEASE_NAME = "checkAbiRelease"
 private const val UPDATE_NAME = "updateAbi"
 private const val EXTRACT_NAME = "extractAbi"
 private const val EXTRACT_RELEASE_NAME = "extractAbiRelease"
+private const val IGNORE_CHANGES_NAME = "ignoreAbiChanges"
 
 private const val KLIB_DUMPS_DIRECTORY = "klib"
 private const val KLIB_MERGE_DIRECTORY = "merged"
 private const val KLIB_EXTRACTED_DIRECTORY = "extracted"
 private const val NATIVE_SUFFIX = "native"
 internal const val CURRENT_API_FILE_NAME = "current.txt"
+private const val IGNORE_FILE_NAME = "current.ignore"
 private const val ABI_GROUP_NAME = "abi"
 
 class BinaryCompatibilityValidation(
@@ -102,8 +107,11 @@ class BinaryCompatibilityValidation(
         if (kotlinMultiplatformExtension.nativeTargets().isEmpty()) {
             return
         }
+        val runtimeClasspath: ConfigurableFileCollection =
+            project.files(project.prepareKlibValidationClasspath())
         val projectVersion: Version = project.version()
         val projectAbiDir = project.getBcvFileDirectory().dir(NATIVE_SUFFIX)
+        val currentIgnoreFile = projectAbiDir.file(IGNORE_FILE_NAME)
         val buildAbiDir = project.getBuiltBcvFileDirectory().map { it.dir(NATIVE_SUFFIX) }
 
         val klibDumpDir = project.layout.buildDirectory.dir(KLIB_DUMPS_DIRECTORY)
@@ -111,24 +119,28 @@ class BinaryCompatibilityValidation(
             klibDumpDir.map { it.dir(KLIB_MERGE_DIRECTORY) }.map { it.file(CURRENT_API_FILE_NAME) }
         val klibExtractedFileDir = klibDumpDir.map { it.dir(KLIB_EXTRACTED_DIRECTORY) }
 
-        val generateAbi = project.generateAbiTask(klibMergeFile)
+        val generateAbi = project.generateAbiTask(klibMergeFile, runtimeClasspath)
         val generatedAndMergedApiFile: Provider<RegularFileProperty> =
             generateAbi.map { it.mergedApiFile }
         val updateKlibAbi =
             project.updateKlibAbiTask(
                 projectAbiDir,
                 generatedAndMergedApiFile,
-                projectVersion.toString()
+                projectVersion.toString(),
+                runtimeClasspath
             )
 
-        val extractKlibAbi = project.extractKlibAbiTask(projectAbiDir, klibExtractedFileDir)
+        val extractKlibAbi =
+            project.extractKlibAbiTask(projectAbiDir, klibExtractedFileDir, runtimeClasspath)
         val extractedProjectFile = extractKlibAbi.map { it.outputAbiFile }
         val checkKlibAbi = project.checkKlibAbiTask(extractedProjectFile, generatedAndMergedApiFile)
         val checkKlibAbiRelease =
             project.checkKlibAbiReleaseTask(
                 generatedAndMergedApiFile,
                 projectAbiDir,
-                klibExtractedFileDir
+                klibExtractedFileDir,
+                currentIgnoreFile,
+                runtimeClasspath
             )
 
         updateKlibAbi.configure { update ->
@@ -141,7 +153,7 @@ class BinaryCompatibilityValidation(
         }
 
         // add each target as an input to the merge task
-        project.configureKlibTargets(generateAbi, buildAbiDir)
+        project.configureKlibTargets(generateAbi, buildAbiDir, runtimeClasspath)
     }
 
     /* Check that the current ABI definition is up to date. */
@@ -149,22 +161,23 @@ class BinaryCompatibilityValidation(
         projectApiFile: Provider<RegularFileProperty>,
         generatedApiFile: Provider<RegularFileProperty>
     ) =
-        project.tasks
-            .register(
-                CHECK_NAME.appendCapitalized(NATIVE_SUFFIX),
-                CheckAbiEquivalenceTask::class.java
-            ) {
-                it.checkedInDump = projectApiFile
-                it.builtDump = generatedApiFile
-                it.group = ABI_GROUP_NAME
-            }
-            .also { task -> task.configure { it.cacheEvenIfNoOutputs() } }
+        project.tasks.register(
+            CHECK_NAME.appendCapitalized(NATIVE_SUFFIX),
+            CheckAbiEquivalenceTask::class.java
+        ) {
+            it.checkedInDump = projectApiFile
+            it.builtDump = generatedApiFile
+            it.group = ABI_GROUP_NAME
+            it.cacheEvenIfNoOutputs()
+        }
 
     /* Check that the current ABI definition is compatible with most recently released version */
     private fun Project.checkKlibAbiReleaseTask(
         mergedApiFile: Provider<RegularFileProperty>,
         klibApiDir: Directory,
-        klibExtractDir: Provider<Directory>
+        klibExtractDir: Provider<Directory>,
+        ignoreFile: RegularFile,
+        runtimeClasspath: ConfigurableFileCollection
     ) =
         project.getRequiredCompatibilityAbiLocation(NATIVE_SUFFIX)?.let { requiredCompatFile ->
             val extractReleaseTask =
@@ -179,31 +192,40 @@ class BinaryCompatibilityValidation(
                     )
                     it.inputAbiFile.set(klibApiDir.file(requiredCompatFile.name))
                     it.outputAbiFile.set(klibExtractDir.map { it.file(requiredCompatFile.name) })
+                    it.runtimeClasspath.from(runtimeClasspath)
                     (it as DefaultTask).group = ABI_GROUP_NAME
                 }
-            project.tasks
-                .register(CHECK_RELEASE_NAME, CheckAbiIsCompatibleTask::class.java) {
-                    it.currentApiDump.set(mergedApiFile.map { fileProperty -> fileProperty.get() })
-                    it.previousApiDump.set(
-                        extractReleaseTask.map { extract -> extract.outputAbiFile.get() }
-                    )
-                    it.projectVersion = provider { projectVersion.toString() }
-                    it.referenceVersion =
-                        extractReleaseTask.map { extract ->
-                            extract.outputAbiFile.get().asFile.nameWithoutExtension
-                        }
-                    it.group = ABI_GROUP_NAME
-                }
-                .also { checkRelease ->
-                    checkRelease.configure { it.dependsOn(extractReleaseTask) }
-                }
+            project.tasks.register(IGNORE_CHANGES_NAME, IgnoreAbiChangesTask::class.java) {
+                it.currentApiDump.set(mergedApiFile.map { fileProperty -> fileProperty.get() })
+                it.previousApiDump.set(
+                    extractReleaseTask.map { extract -> extract.outputAbiFile.get() }
+                )
+                it.ignoreFile.set(ignoreFile)
+                it.runtimeClasspath.from(runtimeClasspath)
+            }
+            project.tasks.register(CHECK_RELEASE_NAME, CheckAbiIsCompatibleTask::class.java) {
+                it.currentApiDump.set(mergedApiFile.map { fileProperty -> fileProperty.get() })
+                it.previousApiDump.set(
+                    extractReleaseTask.map { extract -> extract.outputAbiFile.get() }
+                )
+                it.projectVersion = provider { projectVersion.toString() }
+                it.referenceVersion =
+                    extractReleaseTask.map { extract ->
+                        extract.outputAbiFile.get().asFile.nameWithoutExtension
+                    }
+                it.ignoreFile.set(ignoreFile)
+                it.group = ABI_GROUP_NAME
+                it.dependsOn(extractReleaseTask)
+                it.runtimeClasspath.from(runtimeClasspath)
+            }
         }
 
     /* Updates the current abi file as well as the versioned abi file if appropriate */
     private fun Project.updateKlibAbiTask(
         klibApiDir: Directory,
         mergedKlibFile: Provider<RegularFileProperty>,
-        projectVersion: String
+        projectVersion: String,
+        runtimeClasspath: ConfigurableFileCollection
     ) =
         project.tasks.register(
             UPDATE_NAME.appendCapitalized(NATIVE_SUFFIX),
@@ -215,6 +237,7 @@ class BinaryCompatibilityValidation(
             it.shouldWriteVersionedApiFile.set(project.shouldWriteVersionedApiFile())
             it.group = ABI_GROUP_NAME
             it.unsupportedNativeTargetNames.set(unsupportedNativeTargetNames())
+            it.runtimeClasspath.from(runtimeClasspath)
         }
 
     /**
@@ -222,7 +245,11 @@ class BinaryCompatibilityValidation(
      * project directory so they can be validated with checkAbi. For example on linux, extract all
      * current non-mac targets from the dump.
      */
-    private fun Project.extractKlibAbiTask(klibApiDir: Directory, extractDir: Provider<Directory>) =
+    private fun Project.extractKlibAbiTask(
+        klibApiDir: Directory,
+        extractDir: Provider<Directory>,
+        runtimeClasspath: ConfigurableFileCollection
+    ) =
         project.tasks.register(EXTRACT_NAME, KotlinKlibExtractAbiTask::class.java) {
             it.strictValidation.set(HostManager.hostIsMac)
             it.targetsToRemove.set(
@@ -232,19 +259,25 @@ class BinaryCompatibilityValidation(
             )
             it.inputAbiFile.set(klibApiDir.file(CURRENT_API_FILE_NAME))
             it.outputAbiFile.set(extractDir.map { it.file(CURRENT_API_FILE_NAME) })
+            it.runtimeClasspath.from(runtimeClasspath)
             (it as DefaultTask).group = ABI_GROUP_NAME
         }
 
     /* Merge target specific dumps into single file located in [mergeDir] */
-    private fun Project.generateAbiTask(mergeFile: Provider<RegularFile>) =
+    private fun Project.generateAbiTask(
+        mergeFile: Provider<RegularFile>,
+        runtimeClasspath: ConfigurableFileCollection
+    ) =
         project.tasks.register(GENERATE_NAME, KotlinKlibMergeAbiTask::class.java) {
             it.mergedApiFile.set(mergeFile)
+            it.runtimeClasspath.from(runtimeClasspath)
             (it as DefaultTask).group = ABI_GROUP_NAME
         }
 
     private fun Project.configureKlibTargets(
         mergeTask: TaskProvider<KotlinKlibMergeAbiTask>,
-        abiBuildDir: Provider<Directory>
+        abiBuildDir: Provider<Directory>,
+        runtimeClasspath: ConfigurableFileCollection
     ) {
         val generatedDumps = objects.setProperty(KlibDumpMetadata::class.java)
         mergeTask.configure { it.dumps.addAll(generatedDumps) }
@@ -263,6 +296,7 @@ class BinaryCompatibilityValidation(
                         mainCompilation,
                         target,
                         abiBuildDir.map { it.dir(target.targetName) },
+                        runtimeClasspath,
                     )
                 generatedDumps.add(
                     KlibDumpMetadata(
@@ -294,17 +328,20 @@ class BinaryCompatibilityValidation(
     private fun Project.configureKlibCompilation(
         compilation: KotlinCompilation<*>,
         target: KlibTarget,
-        outputFileDir: Provider<Directory>
+        outputFileDir: Provider<Directory>,
+        runtimeClasspath: ConfigurableFileCollection
     ): TaskProvider<KotlinKlibAbiBuildTask> {
         val buildTask =
             tasks.register(
                 GENERATE_NAME.appendCapitalized(target.targetName),
                 KotlinKlibAbiBuildTask::class.java
             ) {
+                it.nonPublicMarkers.addAll(nonPublicMarkers)
                 it.target.set(target)
                 it.klibFile.from(compilation.output.classesDirs)
                 it.signatureVersion.set(KlibSignatureVersion.LATEST)
                 it.outputAbiFile.set(outputFileDir.map { it.file(CURRENT_API_FILE_NAME) })
+                it.runtimeClasspath.from(runtimeClasspath)
                 (it as DefaultTask).group = ABI_GROUP_NAME
             }
         return buildTask
@@ -325,3 +362,76 @@ private fun KotlinMultiplatformExtension.nativeTargets() =
 
 private fun KotlinNativeTarget.klibTargetName(): String =
     KlibTarget(targetName, konanTargetNameMapping[konanTarget.name]!!).toString()
+
+private fun Project.prepareKlibValidationClasspath(): Configuration {
+    return project.configurations.detachedConfiguration(
+        project.dependencies.create(getLibraryByName("kotlinCompilerEmbeddable"))
+    )
+}
+
+// Not ideal to have a list instead of a pattern to match but this is all the API supports right now
+// https://github.com/Kotlin/binary-compatibility-validator/issues/280
+private val nonPublicMarkers =
+    setOf(
+        "androidx.annotation.Experimental",
+        "androidx.benchmark.BenchmarkState.Companion.ExperimentalExternalReport",
+        "androidx.benchmark.ExperimentalBenchmarkConfigApi",
+        "androidx.benchmark.ExperimentalBenchmarkStateApi",
+        "androidx.benchmark.ExperimentalBlackHoleApi",
+        "androidx.benchmark.macro.ExperimentalMacrobenchmarkApi",
+        "androidx.benchmark.macro.ExperimentalMetricApi",
+        "androidx.benchmark.perfetto.ExperimentalPerfettoCaptureApi",
+        "androidx.benchmark.perfetto.ExperimentalPerfettoTraceProcessorApi",
+        "androidx.camera.core.ExperimentalUseCaseApi",
+        "androidx.car.app.annotations.ExperimentalCarApi",
+        "androidx.compose.animation.ExperimentalAnimationApi",
+        "androidx.compose.animation.ExperimentalSharedTransitionApi",
+        "androidx.compose.animation.core.ExperimentalAnimatableApi",
+        "androidx.compose.animation.core.ExperimentalAnimationSpecApi",
+        "androidx.compose.animation.core.ExperimentalTransitionApi",
+        "androidx.compose.animation.core.InternalAnimationApi",
+        "androidx.compose.animation.graphics.ExperimentalAnimationGraphicsApi",
+        "androidx.compose.foundation.gestures.ExperimentalTapGestureDetectorBehaviorApi",
+        "androidx.compose.foundation.ExperimentalFoundationApi",
+        "androidx.compose.foundation.InternalFoundationApi",
+        "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+        "androidx.compose.material.ExperimentalMaterialApi",
+        "androidx.compose.runtime.ExperimentalComposeApi",
+        "androidx.compose.runtime.ExperimentalComposeRuntimeApi",
+        "androidx.compose.runtime.InternalComposeApi",
+        "androidx.compose.runtime.InternalComposeTracingApi",
+        "androidx.compose.ui.ExperimentalComposeUiApi",
+        "androidx.compose.ui.InternalComposeUiApi",
+        "androidx.compose.ui.input.pointer.util.ExperimentalVelocityTrackerApi",
+        "androidx.compose.ui.node.InternalCoreApi",
+        "androidx.compose.ui.test.ExperimentalTestApi",
+        "androidx.compose.ui.test.InternalTestApi",
+        "androidx.compose.ui.text.ExperimentalTextApi",
+        "androidx.compose.ui.text.InternalTextApi",
+        "androidx.compose.ui.unit.ExperimentalUnitApi",
+        "androidx.constraintlayout.compose.ExperimentalMotionApi",
+        "androidx.core.telecom.util.ExperimentalAppActions",
+        "androidx.credentials.ExperimentalDigitalCredentialApi",
+        "androidx.glance.ExperimentalGlanceApi",
+        "androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi",
+        "androidx.health.connect.client.ExperimentalDeduplicationApi",
+        "androidx.health.connect.client.feature.ExperimentalFeatureAvailabilityApi",
+        "androidx.ink.authoring.ExperimentalLatencyDataApi",
+        "androidx.ink.brush.ExperimentalInkCustomBrushApi",
+        "androidx.lifecycle.viewmodel.compose.SavedStateHandleSaveableApi",
+        "androidx.paging.ExperimentalPagingApi",
+        "androidx.privacysandbox.ads.adservices.common.ExperimentalFeatures.RegisterSourceOptIn",
+        "androidx.privacysandbox.ads.adservices.common.ExperimentalFeatures.Ext8OptIn",
+        "androidx.privacysandbox.ads.adservices.common.ExperimentalFeatures.Ext10OptIn",
+        "androidx.privacysandbox.ads.adservices.common.ExperimentalFeatures.Ext11OptIn",
+        "androidx.privacysandbox.ads.adservices.common.ExperimentalFeatures.Ext12OptIn",
+        "androidx.privacysandbox.ui.core.ExperimentalFeatures.DelegatingAdapterApi",
+        "androidx.room.ExperimentalRoomApi",
+        "androidx.room.compiler.processing.ExperimentalProcessingApi",
+        "androidx.tv.foundation.ExperimentalTvFoundationApi",
+        "androidx.wear.compose.foundation.ExperimentalWearFoundationApi",
+        "androidx.wear.compose.material.ExperimentalWearMaterialApi",
+        "androidx.window.core.ExperimentalWindowApi",
+    )
+
+const val NEW_ISSUE_URL = "https://b.corp.google.com/issues/new?component=1102332"

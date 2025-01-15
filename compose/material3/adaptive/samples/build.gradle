@@ -21,6 +21,8 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 
 plugins {
@@ -54,10 +56,11 @@ androidx {
     type = LibraryType.SAMPLES
     inceptionYear = "2023"
     description = "Contains the sample code for the AndroidX Compose Material Adaptive."
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }
 
 android {
-    compileSdk 35
+    compileSdk = 35
 
-    namespace "androidx.compose.material3.adaptive.samples"
+    namespace = "androidx.compose.material3.adaptive.samples"
 }

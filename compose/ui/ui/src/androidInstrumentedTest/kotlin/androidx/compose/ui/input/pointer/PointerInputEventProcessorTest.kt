@@ -21,11 +21,12 @@ package androidx.compose.ui.input.pointer
 import android.view.InputDevice
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.MotionEvent
+import androidx.collection.IntObjectMap
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.Autofill
+import androidx.compose.ui.autofill.AutofillManager
 import androidx.compose.ui.autofill.AutofillTree
-import androidx.compose.ui.autofill.SemanticAutofill
 import androidx.compose.ui.draganddrop.DragAndDropManager
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusOwner
@@ -50,12 +51,14 @@ import androidx.compose.ui.node.Owner
 import androidx.compose.ui.node.OwnerSnapshotObserver
 import androidx.compose.ui.node.RootForTest
 import androidx.compose.ui.platform.AccessibilityManager
+import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.PlatformTextInputSessionScope
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.spatial.RectManager
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -2846,6 +2849,9 @@ private class TestOwner : Owner {
     override val rootForTest: RootForTest
         get() = TODO("Not yet implemented")
 
+    override val layoutNodes: IntObjectMap<LayoutNode>
+        get() = TODO("Not yet implemented")
+
     override val hapticFeedBack: HapticFeedback
         get() = TODO("Not yet implemented")
 
@@ -2853,6 +2859,9 @@ private class TestOwner : Owner {
         get() = TODO("Not yet implemented")
 
     override val clipboardManager: ClipboardManager
+        get() = TODO("Not yet implemented")
+
+    override val clipboard: Clipboard
         get() = TODO("Not yet implemented")
 
     override val accessibilityManager: AccessibilityManager
@@ -2873,7 +2882,7 @@ private class TestOwner : Owner {
     override val autofill: Autofill?
         get() = null
 
-    override val semanticAutofill: SemanticAutofill?
+    override val autofillManager: AutofillManager?
         get() = null
 
     override val density: Density
@@ -2900,6 +2909,9 @@ private class TestOwner : Owner {
     }
 
     override val pointerIconService: PointerIconService
+        get() = TODO("Not yet implemented")
+
+    override val semanticsOwner: SemanticsOwner
         get() = TODO("Not yet implemented")
 
     override val focusOwner: FocusOwner
@@ -2957,7 +2969,9 @@ private class TestOwner : Owner {
         TODO("Not yet implemented")
     }
 
-    override fun onAttach(node: LayoutNode) {}
+    override fun onPreAttach(node: LayoutNode) {}
+
+    override fun onPostAttach(node: LayoutNode) {}
 
     override fun onDetach(node: LayoutNode) {}
 

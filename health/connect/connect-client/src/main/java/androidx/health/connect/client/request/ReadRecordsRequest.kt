@@ -53,8 +53,8 @@ inline fun <reified T : Record> ReadRecordsRequest(
  * exceeds [pageSize]. Use this if you expect an unbound number of records within specified time
  * ranges. Stops at any time once desired amount of records are processed.
  *
- * @param T type of [Record], such as `Steps`.
- * @param recordType Which type of [Record] to read, such as `Steps::class`.
+ * @param T type of [Record], such as [androidx.health.connect.client.records.StepsRecord].
+ * @param recordType Which type of [Record] to read, such as `StepsRecord::class`.
  * @param timeRangeFilter The [TimeRangeFilter] to read from.
  * @param dataOriginFilter List of [DataOrigin] to read from, or empty for no filter.
  * @param ascendingOrder Whether the [Record] should be returned in ascending or descending order by
@@ -102,6 +102,19 @@ constructor(
 
     init {
         require(pageSize > 0) { "pageSize must be positive." }
+    }
+
+    @OptIn(ExperimentalDeduplicationApi::class)
+    internal fun withPageToken(newPageToken: String?): ReadRecordsRequest<T> {
+        return ReadRecordsRequest(
+            recordType = recordType,
+            timeRangeFilter = timeRangeFilter,
+            dataOriginFilter = dataOriginFilter,
+            ascendingOrder = ascendingOrder,
+            pageSize = pageSize,
+            pageToken = newPageToken,
+            deduplicateStrategy = deduplicateStrategy
+        )
     }
 
     override fun equals(other: Any?): Boolean {

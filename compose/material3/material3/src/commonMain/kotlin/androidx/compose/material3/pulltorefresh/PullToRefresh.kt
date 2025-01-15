@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.internal.FloatProducer
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.tokens.ElevationTokens
 import androidx.compose.material3.tokens.MotionSchemeKeyTokens
@@ -82,6 +83,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import kotlin.js.JsName
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -255,6 +257,7 @@ internal class PullToRefreshModifierNode(
     override fun onAttach() {
         delegate(nestedScrollNode)
         coroutineScope.launch { state.snapTo(if (isRefreshing) 1f else 0f) }
+        verticalOffset = if (isRefreshing) thresholdPx.toFloat() else 0f
     }
 
     override fun onPreScroll(
@@ -325,22 +328,22 @@ internal class PullToRefreshModifierNode(
             onRefresh()
         }
 
-        animateToHidden()
-
         val consumed =
             when {
                 // We are flinging without having dragged the pull refresh (for example a fling
-                // inside
-                // a list) - don't consume
+                // inside a list) - don't consume
                 distancePulled == 0f -> 0f
                 // If the velocity is negative, the fling is upwards, and we don't want to prevent
-                // the
                 // the list from scrolling
                 velocity < 0f -> 0f
                 // We are showing the indicator, and the fling is downwards - consume everything
                 else -> velocity
             }
+
+        animateToHidden()
+
         distancePulled = 0f
+
         return consumed
     }
 
@@ -663,7 +666,9 @@ fun rememberPullToRefreshState(): PullToRefreshState {
  *
  * Note that in most cases, you are advised to use [rememberPullToRefreshState] when in composition.
  */
-@ExperimentalMaterial3Api fun PullToRefreshState(): PullToRefreshState = PullToRefreshStateImpl()
+@JsName("funPullToRefreshState")
+@ExperimentalMaterial3Api
+fun PullToRefreshState(): PullToRefreshState = PullToRefreshStateImpl()
 
 @ExperimentalMaterial3Api
 internal class PullToRefreshStateImpl
@@ -701,7 +706,7 @@ private constructor(private val anim: Animatable<Float, AnimationVector1D>) : Pu
 /** The default pull indicator for [PullToRefreshBox] */
 @Composable
 private fun CircularArrowProgressIndicator(
-    progress: () -> Float,
+    progress: FloatProducer,
     color: Color,
 ) {
     val path = remember { Path().apply { fillType = PathFillType.EvenOdd } }

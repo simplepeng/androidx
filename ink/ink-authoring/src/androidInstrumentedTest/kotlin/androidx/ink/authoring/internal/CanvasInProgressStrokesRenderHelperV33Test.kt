@@ -61,8 +61,8 @@ import org.mockito.kotlin.whenever
 @RunWith(AndroidJUnit4::class)
 @MediumTest
 @SdkSuppress(
-    minSdkVersion = Build.VERSION_CODES.TIRAMISU,
     maxSdkVersion = Build.VERSION_CODES.TIRAMISU,
+    minSdkVersion = Build.VERSION_CODES.TIRAMISU
 )
 class CanvasInProgressStrokesRenderHelperV33Test {
 
@@ -140,6 +140,9 @@ class CanvasInProgressStrokesRenderHelperV33Test {
         assertThat(ranAnyOnUiThread).isTrue()
 
         withActivity { activity ->
+            // Run pending initialization tasks.
+            activity.fakeThreads.runRenderThreadToIdle()
+
             // Two draw requests, with a render thread executions for each of their top level render
             // thread scheduled tasks.
             activity.renderHelper.requestDraw()
@@ -195,20 +198,15 @@ class CanvasInProgressStrokesRenderHelperV33Test {
             whenever(callback.onDraw()).then {
                 activity.renderHelper.prepareToDrawInModifiedRegion(MutableBox())
                 activity.renderHelper.drawInModifiedRegion(InProgressStroke(), Matrix())
-
                 activity.renderHelper.afterDrawInModifiedRegion()
             }
 
             activity.renderHelper.requestDraw()
-            assertThat(activity.fakeThreads.runRenderThreadOnce()).isTrue()
+            assertThat(activity.fakeThreads.runRenderThreadToIdle()).isTrue()
 
-            // onDraw and onDrawComplete executed just for the first draw request.
             verify(callback, times(1)).onDraw()
-            // The [InProgressStroke] above is expected to be drawn by the [renderer], and the
-            // legacy
-            // [LegacyStrokeBuilder] is expected to be drawn by the [legacyRenderer].
-            verify(renderer, times(1)).draw(any(), any<InProgressStroke>(), any<Matrix>())
-
+            verify(renderer, times(1))
+                .draw(any(), any<InProgressStroke>(), any<Matrix>(), any<Float>())
             verify(callback, times(1)).onDrawComplete()
         }
     }

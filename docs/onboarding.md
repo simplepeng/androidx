@@ -17,6 +17,11 @@ This section will help you install the `repo` tool, which is used for Git branch
 and commit management. If you want to learn more about `repo`, see the
 [Repo Command Reference](https://source.android.com/setup/develop/repo).
 
+NOTE The `repo` tool uses Git submodules under the hood, and it is possible to
+skip using the tool in favor of using submodules directly. If you prefer to use
+submodules, look for notes anywhere that `repo` is mentioned in this document.
+Submodule users can skip Workstation setup.
+
 ### Linux and MacOS {#setup-linux-mac}
 
 First, download `repo` using `curl`.
@@ -95,12 +100,15 @@ Finally, you will need to accept the
 
 ## Check out the source {#source}
 
-Like ChromeOS, Chromium, and the Android build system, we develop in the open as
-much as possible. All feature development occurs in the public
-[androidx-main](https://android.googlesource.com/platform/frameworks/support/+/androidx-main)
-branch of the Android Open Source Project.
+Like ChromeOS, Chromium, and the Android OS, we develop in the open as much as
+possible. All feature development occurs in the public
+[`androidx-main`](https://android.googlesource.com/platform/superproject/+/refs/heads/androidx-main)
+`repo` branch of the Android Open Source Project, with majority of the code in
+the
+[`frameworks/support` git repository](https://android.googlesource.com/platform/frameworks/support/+/androidx-main).
 
-As of 2023/03/30, you will need about 42 GB for a fully-built checkout.
+As of 2024/10/10, you will need about XXX GB for a clean checkout or YYY GB for
+a fully-built checkout.
 
 ### Synchronize the branch {#source-checkout}
 
@@ -117,7 +125,7 @@ The following command will check out the public main development branch:
 mkdir androidx-main && cd androidx-main
 repo init -u https://android.googlesource.com/platform/manifest \
     -b androidx-main --partial-clone --clone-filter=blob:limit=10M
-repo sync -c -j8
+repo sync -c -j32
 ```
 
 NOTE On MacOS, if you receive an SSL error like `SSL: CERTIFICATE_VERIFY_FAILED`
@@ -376,8 +384,15 @@ which our gradlew expands into a few correctness-related flags including
 ./gradlew core:core:assemble --strict
 ```
 
-To build every module and generate the local Maven repository artifact, use the
-`createArchive` Gradle task:
+To generate a local Maven artifact for the specific module and place it in
+`out/repository`, use the `publish` Gradle task:
+
+```shell
+./gradlew core:core:publish
+```
+
+To build every module and generate the local Maven repository artifacts and
+place them in `out/repository`, use the `createArchive` Gradle task:
 
 ```shell
 ./gradlew createArchive

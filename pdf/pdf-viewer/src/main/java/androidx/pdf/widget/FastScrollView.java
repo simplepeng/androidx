@@ -28,8 +28,6 @@ import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.graphics.Insets;
@@ -40,6 +38,9 @@ import androidx.pdf.util.MathUtils;
 import androidx.pdf.util.ObservableValue.ValueObserver;
 import androidx.pdf.viewer.PaginationModel;
 import androidx.pdf.viewer.PaginationModelObserver;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link FrameLayout} that draws a draggable scrollbar over its child views. It is tightly
@@ -81,11 +82,14 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
     private final PageIndicator mPageIndicator;
     private PaginationModel mPaginationModel;
 
+    /** Indicates the scrubber visibility */
+    private boolean mIsScrubberVisible;
+
     private final ValueObserver<ZoomView.ZoomScroll> mZoomScrollObserver =
             new ValueObserver<ZoomView.ZoomScroll>() {
                 @Override
-                public void onChange(@Nullable ZoomView.ZoomScroll oldValue,
-                        @Nullable ZoomView.ZoomScroll newValue) {
+                public void onChange(ZoomView.@Nullable ZoomScroll oldValue,
+                        ZoomView.@Nullable ZoomScroll newValue) {
                     if (mPaginationModel == null || !mPaginationModel.isInitialized()
                             || newValue == null || mPaginationModel.getSize() == 0) {
                         return;
@@ -231,14 +235,12 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
     }
 
     @VisibleForTesting
-    @NonNull
-    public View getDragHandle() {
+    public @NonNull View getDragHandle() {
         return mDragHandle;
     }
 
     @VisibleForTesting
-    @NonNull
-    public TextView getPageIndicator() {
+    public @NonNull TextView getPageIndicator() {
         return mPageIndicator.getTextView();
     }
 
@@ -266,6 +268,20 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
     public void setVisible() {
         mDragHandle.setAlpha(1);
         mDragHandle.animate().setStartDelay(FADE_DELAY_MS).alpha(0F).start();
+    }
+
+    /**
+     *  Sets the visibility state of the scrubber and the associated page indicator.
+     */
+    public void setScrubberVisibility(boolean visibility) {
+        mIsScrubberVisible = visibility;
+        if (mIsScrubberVisible) {
+            setState(State.VISIBLE);
+            mPageIndicator.show();
+        } else {
+            setState(State.NONE);
+            mPageIndicator.hide();
+        }
     }
 
     private void setState(State state) {
@@ -377,6 +393,13 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
         if (position == mCurrentPosition) {
             return;
         }
+
+        if (!mIsScrubberVisible) {
+            setState(State.NONE);
+            mPageIndicator.hide();
+            return;
+        }
+
         requireZoomViewAndPaginationModel();
         mCurrentPosition = position;
 
@@ -414,8 +437,13 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
         view.setTranslationY(transY);
         View indicatorView = mPageIndicator.getView();
         indicatorView.setY(newPosition - ((float) indicatorView.getHeight() / 2));
-        mPageIndicator.show();
-        setVisible();
+        if (!mIsScrubberVisible) {
+            setState(State.NONE);
+            mPageIndicator.hide();
+        } else {
+            mPageIndicator.show();
+            setVisible();
+        }
     }
 
     /**
@@ -445,8 +473,11 @@ public class FastScrollView extends FrameLayout implements PaginationModelObserv
         // Update PageIndicator as page dimensions become known
         requireZoomViewAndPaginationModel();
         ZoomView.ZoomScroll position = mZoomView.zoomScroll().get();
-        mPageIndicator.setRangeAndZoom(computeImportantRange(position), position.zoom,
-                position.stable);
+
+        if (mZoomView.getIsInitialZoomDone()) {
+            mPageIndicator.setRangeAndZoom(computeImportantRange(position), mZoomView.getZoom(),
+                    position.stable);
+        }
     }
 
     private void requireZoomViewAndPaginationModel() {

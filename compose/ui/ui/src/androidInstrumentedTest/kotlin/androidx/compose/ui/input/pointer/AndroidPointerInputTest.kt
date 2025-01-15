@@ -18,8 +18,6 @@ package androidx.compose.ui.input.pointer
 
 import android.content.Context
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.MotionEvent.ACTION_BUTTON_PRESS
@@ -45,16 +43,21 @@ import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.AbsoluteAlignment
@@ -80,21 +83,26 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.AndroidComposeView
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.filters.SmallTest
 import androidx.testutils.waitForFutureFrame
 import com.google.common.truth.Truth.assertThat
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -198,6 +206,7 @@ class AndroidPointerInputTest {
     }
 
     @Test
+    @SdkSuppress(maxSdkVersion = 34) // b/384972397: Failing on SDK 35
     fun dispatchTouchEvent_noPointerInputModifiers_returnsFalse() {
 
         // Arrange
@@ -715,25 +724,89 @@ class AndroidPointerInputTest {
         }
     }
 
+    /*
+     * Tests that a long press is NOT triggered when an up event (following a down event) isn't
+     * executed right away because the UI thread is delayed past the long press timeout.
+     *
+     * Note: This test is a bit complicated because it needs to properly execute events in order
+     * using multiple coroutine delay()s and Thread.sleep() in the main thread.
+     *
+     * Expected behavior: When the UI thread wakes up, the up event should be triggered before the
+     * second delay() in the withTimeout() (which foundation's long press uses). Thus, the tap
+     * triggers and NOT the long press.
+     *
+     * Actual steps this test uses to recreate this scenario:
+     *   1. Down event is triggered
+     *   2. An up event is scheduled to be triggered BEFORE the timeout for a long press (uses
+     *       a coroutine sleep() that is less than the long press timeout).
+     *   3. The UI thread sleeps before the sleep() awakens to fire the up event (the sleep time is
+     *       LONGER than the long press timeout).
+     *   4. The UI thread wakes up, executes the first sleep() for the long press timeout
+     *       (in withTimeout() implementation [`SuspendingPointerInputModifierNodeImpl`])
+     *   5. The up event is fired (sleep() for test coroutine finishes).
+     *   6. Tap is triggered (that is, long press is NOT triggered because the second sleep() is
+     *       NOT executed in withTimeout()).
+     */
     @Test
     fun detectTapGestures_blockedMainThread() {
         var didLongPress = false
         var didTap = false
-        var inputLatch = CountDownLatch(1)
+
         val positionedLatch = CountDownLatch(1)
+        var pressLatch = CountDownLatch(1)
+        var clickOrLongPressLatch = CountDownLatch(1)
+
+        lateinit var coroutineScope: CoroutineScope
+
+        val locationInWindow = IntArray(2)
+
+        // Less than long press timeout
+        val touchUpDelay = 100
+        // 400L
+        val longPressTimeout = android.view.ViewConfiguration.getLongPressTimeout()
+        // Goes past long press timeout (above)
+        val sleepTime = longPressTimeout + 100L
+        // matches first delay time in [PointerEventHandlerCoroutine.withTimeout()]
+        val withTimeoutDelay = longPressTimeout - WITH_TIMEOUT_MICRO_DELAY_MILLIS
+        var upEvent: MotionEvent? = null
 
         rule.runOnUiThread {
             container.setContent {
+                coroutineScope = rememberCoroutineScope()
+
                 FillLayout(
                     Modifier.pointerInput(Unit) {
                             detectTapGestures(
                                 onLongPress = {
                                     didLongPress = true
-                                    inputLatch.countDown()
+                                    clickOrLongPressLatch.countDown()
                                 },
                                 onTap = {
                                     didTap = true
-                                    inputLatch.countDown()
+                                    clickOrLongPressLatch.countDown()
+                                },
+                                onPress = {
+                                    // AwaitPointerEventScope.waitForLongPress() uses
+                                    // PointerEventHandlerCoroutine.withTimeout() as part of
+                                    // the timeout logic to see if a long press has occurred.
+                                    //
+                                    // Within PointerEventHandlerCoroutine.withTimeout(), there
+                                    // is a coroutine with two delay() calls and we are
+                                    // specifically testing that an up event that is put to
+                                    // sleep (but within the timeout time), does not trigger a
+                                    // long press when it comes in between those delay() calls.
+                                    //
+                                    // To do that, we want to get the timing of this coroutine
+                                    // as close to timeout as possible. That is, executing the
+                                    // up event (after the delay below) right between those
+                                    // delays to avoid the test being flaky.
+                                    coroutineScope.launch {
+                                        // Matches first delay used with withTimeout() for long
+                                        // press.
+                                        delay(withTimeoutDelay)
+                                        findRootView(container).dispatchTouchEvent(upEvent!!)
+                                    }
+                                    pressLatch.countDown()
                                 }
                             )
                         }
@@ -743,13 +816,7 @@ class AndroidPointerInputTest {
         }
 
         assertTrue(positionedLatch.await(1, TimeUnit.SECONDS))
-        val locationInWindow = IntArray(2)
         container.getLocationInWindow(locationInWindow)
-
-        val handler = Handler(Looper.getMainLooper())
-
-        val touchUpDelay = 100
-        val sleepTime = android.view.ViewConfiguration.getLongPressTimeout() + 100L
 
         repeat(5) { iteration ->
             rule.runOnUiThread {
@@ -759,33 +826,32 @@ class AndroidPointerInputTest {
                         ACTION_DOWN,
                         locationInWindow
                     )
-                findRootView(container).dispatchTouchEvent(downEvent)
-            }
 
-            rule.runOnUiThread {
-                val upEvent =
+                upEvent =
                     createPointerEventAt(
                         touchUpDelay + iteration * sleepTime.toInt(),
                         ACTION_UP,
                         locationInWindow
                     )
-                handler.postDelayed(
-                    Runnable { findRootView(container).dispatchTouchEvent(upEvent) },
-                    touchUpDelay.toLong()
-                )
-
-                // Block the UI thread from now until past the long-press
-                // timeout. This tests that even in pathological situations,
-                // the upEvent is still processed before the long-press timeout.
-                Thread.sleep(sleepTime)
+                findRootView(container).dispatchTouchEvent(downEvent)
             }
 
-            assertTrue(inputLatch.await(1, TimeUnit.SECONDS))
+            assertTrue(pressLatch.await(1, TimeUnit.SECONDS))
+
+            // Blocks the UI thread from now until past the long-press
+            // timeout. This tests that even in pathological situations,
+            // the upEvent is still processed before the long-press
+            // timeout.
+            rule.runOnUiThread { Thread.sleep(sleepTime) }
+
+            assertTrue(clickOrLongPressLatch.await(1, TimeUnit.SECONDS))
+
             assertFalse(didLongPress)
             assertTrue(didTap)
 
             didTap = false
-            inputLatch = CountDownLatch(1)
+            clickOrLongPressLatch = CountDownLatch(1)
+            pressLatch = CountDownLatch(1)
         }
     }
 
@@ -1534,12 +1600,9 @@ class AndroidPointerInputTest {
      * NOTE 2: The [MotionEvent.obtain()] that allows you to set classification, is only available
      * in U. (Thus, why this test request at least that version.)
      */
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     @Test
     fun motionEventDispatch_withValidClassification_shouldMatchInPointerEvent() {
-        // Skips this test if the SDK is below Android U
-        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-
         // --> Arrange
         var boxLayoutCoordinates: LayoutCoordinates? = null
         val setUpFinishedLatch = CountDownLatch(1)
@@ -4666,6 +4729,572 @@ class AndroidPointerInputTest {
                     PointerEventType.Press,
                     PointerEventType.Release,
                 )
+        }
+    }
+
+    /**
+     * Touch events occur between two boxes that are both less than the minimum touch target size.
+     * Tests an event directly between two boxes, then on each side of that border to make sure the
+     * correct box event handlers are triggered.
+     */
+    @Test
+    fun twoMinimumTouchTargetsAdjacent_nonDirectHitsBetweenTwo_triggersAppropriateBox() {
+        var containingColumnPointerEventCount = 0
+        var topBoxPointerEventCount = 0
+        var bottomBoxPointerEventCount = 0
+
+        val spaceBetweenElementsInColumnDp: Dp = 8.dp
+        var spaceBetweenElementsInColumnPixel: Float? = null
+        var dpInPixel: Float? = null
+
+        var bottomBoxCoordinates: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                with(LocalDensity.current) {
+                    dpInPixel = 1.dp.toPx()
+                    spaceBetweenElementsInColumnPixel = spaceBetweenElementsInColumnDp.toPx()
+                }
+                Column(
+                    Modifier.fillMaxSize().background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingColumnPointerEventCount++
+                            }
+                        }
+                    },
+                    verticalArrangement = Arrangement.spacedBy(spaceBetweenElementsInColumnDp)
+                ) {
+                    Box(
+                        Modifier.size(40.dp) // Below minimum touch target 48.dp
+                            .background(Color.Green)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        topBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                    Box(
+                        Modifier.size(40.dp) // Below minimum touch target 48.dp
+                            .background(Color.Cyan)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        bottomBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                            .onGloballyPositioned {
+                                bottomBoxCoordinates = it
+                                latch.countDown()
+                            }
+                    )
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+        dispatchTouchEvent(ACTION_DOWN, bottomBoxCoordinates!!)
+        dispatchTouchEvent(ACTION_UP, bottomBoxCoordinates!!)
+
+        rule.runOnUiThread {
+            assertThat(containingColumnPointerEventCount).isEqualTo(2)
+            assertThat(topBoxPointerEventCount).isEqualTo(0)
+            assertThat(bottomBoxPointerEventCount).isEqualTo(2)
+        }
+
+        val halfSpacing: Float = spaceBetweenElementsInColumnPixel!! / 2
+        val negativeHalfSpaceTriggersBottomBox = -halfSpacing
+        val negativeHalfSpaceMinusOnePixelTriggersTopBox =
+            negativeHalfSpaceTriggersBottomBox - dpInPixel!!
+
+        dispatchTouchEvent(
+            ACTION_DOWN,
+            bottomBoxCoordinates!!,
+            Offset(0f, negativeHalfSpaceTriggersBottomBox)
+        )
+        dispatchTouchEvent(
+            ACTION_UP,
+            bottomBoxCoordinates!!,
+            Offset(0f, negativeHalfSpaceTriggersBottomBox)
+        )
+
+        rule.runOnUiThread {
+            assertThat(containingColumnPointerEventCount).isEqualTo(4)
+            assertThat(topBoxPointerEventCount).isEqualTo(0)
+            assertThat(bottomBoxPointerEventCount).isEqualTo(4)
+        }
+
+        dispatchTouchEvent(
+            ACTION_DOWN,
+            bottomBoxCoordinates!!,
+            Offset(0f, negativeHalfSpaceMinusOnePixelTriggersTopBox)
+        )
+        dispatchTouchEvent(
+            ACTION_UP,
+            bottomBoxCoordinates!!,
+            Offset(0f, negativeHalfSpaceMinusOnePixelTriggersTopBox)
+        )
+
+        rule.runOnUiThread {
+            assertThat(containingColumnPointerEventCount).isEqualTo(6)
+            assertThat(topBoxPointerEventCount).isEqualTo(2)
+            assertThat(bottomBoxPointerEventCount).isEqualTo(4)
+        }
+    }
+
+    /**
+     * Tests overlapping siblings using a containing parent Box. The one on top (and that wins) is
+     * determined by order.
+     */
+    @Test
+    fun hitOnOverlappingSiblings_rightSiblingAbove_triggersRightSibling() {
+        var containingBoxPointerEventCount = 0
+        var leftBoxPointerEventCount = 0
+        var rightBoxPointerEventCount = 0
+        var rightBoxInnerChildPointerEventCount = 0
+
+        var rightBoxInnerChild: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                Box(
+                    Modifier.size(200.dp).background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingBoxPointerEventCount++
+                            }
+                        }
+                    }
+                ) {
+                    Box(
+                        Modifier.width(180.dp)
+                            .height(50.dp)
+                            .padding(10.dp)
+                            .background(Color.Green)
+                            .align(Alignment.TopStart)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        leftBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                    Box(
+                        Modifier.size(100.dp)
+                            .background(Color.Blue)
+                            .align(Alignment.TopEnd)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        rightBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    ) {
+                        Box(
+                            Modifier.padding(10.dp)
+                                .size(80.dp)
+                                .background(Color.Cyan)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent()
+                                            rightBoxInnerChildPointerEventCount++
+                                        }
+                                    }
+                                }
+                                .onGloballyPositioned {
+                                    rightBoxInnerChild = it
+                                    latch.countDown()
+                                }
+                        )
+                    }
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+
+        dispatchTouchEvent(ACTION_DOWN, rightBoxInnerChild!!)
+        dispatchTouchEvent(ACTION_UP, rightBoxInnerChild!!)
+
+        rule.runOnUiThread {
+            assertThat(containingBoxPointerEventCount).isEqualTo(2)
+            assertThat(leftBoxPointerEventCount).isEqualTo(0)
+            assertThat(rightBoxPointerEventCount).isEqualTo(2)
+            assertThat(rightBoxInnerChildPointerEventCount).isEqualTo(2)
+        }
+    }
+
+    /**
+     * This test is exactly the same as
+     * [hitOnOverlappingSiblings_rightSiblingAbove_triggersRightSibling], but with the z-index
+     * manually changed on the overlapping sibling so it is above instead of below the other
+     * conflicting sibling (so left sibling is triggered instead of right sibling).
+     */
+    @Test
+    fun hitOnOverlappingSiblings_leftSiblingAboveViaZIndex_triggersLeftSibling() {
+        var containingBoxPointerEventCount = 0
+        var leftBoxPointerEventCount = 0
+        var rightBoxPointerEventCount = 0
+        var rightBoxInnerChildPointerEventCount = 0
+
+        var rightBoxInnerChild: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                Box(
+                    Modifier.size(200.dp).background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingBoxPointerEventCount++
+                            }
+                        }
+                    }
+                ) {
+                    Box(
+                        Modifier.width(180.dp)
+                            .height(50.dp)
+                            .padding(10.dp)
+                            .background(Color.Green)
+                            .zIndex(1f)
+                            .align(Alignment.TopStart)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        leftBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                    Box(
+                        Modifier.size(100.dp)
+                            .background(Color.Blue)
+                            .align(Alignment.TopEnd)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        rightBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    ) {
+                        Box(
+                            Modifier.padding(10.dp)
+                                .size(80.dp)
+                                .background(Color.Cyan)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent()
+                                            rightBoxInnerChildPointerEventCount++
+                                        }
+                                    }
+                                }
+                                .onGloballyPositioned {
+                                    rightBoxInnerChild = it
+                                    latch.countDown()
+                                }
+                        )
+                    }
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+
+        dispatchTouchEvent(ACTION_DOWN, rightBoxInnerChild!!)
+        dispatchTouchEvent(ACTION_UP, rightBoxInnerChild!!)
+
+        rule.runOnUiThread {
+            assertThat(containingBoxPointerEventCount).isEqualTo(2)
+            assertThat(leftBoxPointerEventCount).isEqualTo(2)
+            assertThat(rightBoxPointerEventCount).isEqualTo(0)
+            assertThat(rightBoxInnerChildPointerEventCount).isEqualTo(0)
+        }
+    }
+
+    /**
+     * This test uses the same UI elements as
+     * [hitOnOverlappingSiblings_rightSiblingAbove_triggersRightSibling], but they are declared in
+     * reverse order, so we can test the correct overlapping sibling (one above the other is
+     * triggered).
+     */
+    @Test
+    fun hitOnOverlappingSiblingsReversedUI_rightSiblingAbove_triggersRightSibling() {
+        var containingBoxPointerEventCount = 0
+        var leftBoxPointerEventCount = 0
+        var leftBoxInnerChildPointerEventCount = 0
+        var rightBoxPointerEventCount = 0
+
+        var rightBoxInnerChild: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                Box(
+                    Modifier.size(200.dp).background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingBoxPointerEventCount++
+                            }
+                        }
+                    }
+                ) {
+                    Box(
+                        Modifier.size(100.dp)
+                            .background(Color.Blue)
+                            .align(Alignment.TopStart)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        leftBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    ) {
+                        Box(
+                            Modifier.padding(10.dp)
+                                .size(80.dp)
+                                .background(Color.Cyan)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent()
+                                            leftBoxInnerChildPointerEventCount++
+                                        }
+                                    }
+                                }
+                                .onGloballyPositioned {
+                                    rightBoxInnerChild = it
+                                    latch.countDown()
+                                }
+                        )
+                    }
+
+                    Box(
+                        Modifier.width(200.dp)
+                            .height(50.dp)
+                            .padding(10.dp)
+                            .background(Color.Green)
+                            .align(Alignment.TopEnd)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        rightBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+
+        dispatchTouchEvent(ACTION_DOWN, rightBoxInnerChild!!)
+        dispatchTouchEvent(ACTION_UP, rightBoxInnerChild!!)
+
+        rule.runOnUiThread {
+            assertThat(containingBoxPointerEventCount).isEqualTo(2)
+            assertThat(rightBoxPointerEventCount).isEqualTo(2)
+            assertThat(leftBoxPointerEventCount).isEqualTo(0)
+            assertThat(leftBoxInnerChildPointerEventCount).isEqualTo(0)
+        }
+    }
+
+    /**
+     * This test is exactly the same as
+     * [hitOnOverlappingSiblingsReversedUI_rightSiblingAbove_triggersRightSibling], but with the
+     * z-index manually changed on the overlapping sibling so it is above instead of below the other
+     * conflicting sibling (so left sibling is triggered instead of right sibling).
+     */
+    @Test
+    fun hitOnOverlappingSiblingsReversedUI_leftSiblingAboveViaZIndex_triggersLeftSibling() {
+        var containingBoxPointerEventCount = 0
+        var leftBoxPointerEventCount = 0
+        var leftBoxInnerChildPointerEventCount = 0
+        var rightBoxPointerEventCount = 0
+
+        var rightBoxInnerChild: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                Box(
+                    Modifier.size(200.dp).background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingBoxPointerEventCount++
+                            }
+                        }
+                    }
+                ) {
+                    Box(
+                        Modifier.size(100.dp)
+                            .background(Color.Blue)
+                            .align(Alignment.TopStart)
+                            .zIndex(1f)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        leftBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    ) {
+                        Box(
+                            Modifier.padding(10.dp)
+                                .size(80.dp)
+                                .background(Color.Cyan)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent()
+                                            leftBoxInnerChildPointerEventCount++
+                                        }
+                                    }
+                                }
+                                .onGloballyPositioned {
+                                    rightBoxInnerChild = it
+                                    latch.countDown()
+                                }
+                        )
+                    }
+
+                    Box(
+                        Modifier.width(200.dp)
+                            .height(50.dp)
+                            .padding(10.dp)
+                            .background(Color.Green)
+                            .align(Alignment.TopEnd)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        rightBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+
+        dispatchTouchEvent(ACTION_DOWN, rightBoxInnerChild!!)
+        dispatchTouchEvent(ACTION_UP, rightBoxInnerChild!!)
+
+        rule.runOnUiThread {
+            assertThat(containingBoxPointerEventCount).isEqualTo(2)
+            assertThat(rightBoxPointerEventCount).isEqualTo(0)
+            assertThat(leftBoxPointerEventCount).isEqualTo(2)
+            assertThat(leftBoxInnerChildPointerEventCount).isEqualTo(2)
+        }
+    }
+
+    /**
+     * This is similar to
+     * [hitOnOverlappingSiblingsReversedUI_leftSiblingAboveViaZIndex_triggersLeftSibling] but
+     * instead of setting the z-index of a sibling, we are setting the z-index of the child of the
+     * sibling. Because z-index only influences siblings (and not parents, grandparents, etc.), this
+     * will not changing the order of the left sibling and the right sibling will still win (since
+     * it's UI was declared later).
+     */
+    @Test
+    fun hitOnOverlappingSiblingsReversedUI_leftSiblingChildHighZIndex_triggersRightSibling() {
+        var containingBoxPointerEventCount = 0
+        var leftBoxPointerEventCount = 0
+        var leftBoxInnerChildPointerEventCount = 0
+        var rightBoxPointerEventCount = 0
+
+        var rightBoxInnerChild: LayoutCoordinates? = null
+        val latch = CountDownLatch(1)
+        rule.runOnUiThread {
+            container.setContent {
+                Box(
+                    Modifier.size(200.dp).background(Color.Red).pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                                containingBoxPointerEventCount++
+                            }
+                        }
+                    }
+                ) {
+                    Box(
+                        Modifier.size(100.dp)
+                            .background(Color.Blue)
+                            .align(Alignment.TopStart)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        leftBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    ) {
+                        Box(
+                            Modifier.padding(10.dp)
+                                .size(80.dp)
+                                .background(Color.Cyan)
+                                .zIndex(1f)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent()
+                                            leftBoxInnerChildPointerEventCount++
+                                        }
+                                    }
+                                }
+                                .onGloballyPositioned {
+                                    rightBoxInnerChild = it
+                                    latch.countDown()
+                                }
+                        )
+                    }
+
+                    Box(
+                        Modifier.width(200.dp)
+                            .height(50.dp)
+                            .padding(10.dp)
+                            .background(Color.Green)
+                            .align(Alignment.TopEnd)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                        rightBoxPointerEventCount++
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
+        }
+        assertTrue(latch.await(1, TimeUnit.SECONDS))
+
+        dispatchTouchEvent(ACTION_DOWN, rightBoxInnerChild!!)
+        dispatchTouchEvent(ACTION_UP, rightBoxInnerChild!!)
+
+        rule.runOnUiThread {
+            assertThat(containingBoxPointerEventCount).isEqualTo(2)
+            assertThat(rightBoxPointerEventCount).isEqualTo(2)
+            assertThat(leftBoxPointerEventCount).isEqualTo(0)
+            assertThat(leftBoxInnerChildPointerEventCount).isEqualTo(0)
         }
     }
 

@@ -73,7 +73,7 @@ class ProfileInstallBroadcastTest {
     fun saveProfile_missing() {
         val errorString = ProfileInstallBroadcast.saveProfile(Packages.MISSING)
         assertNotNull(errorString)
-        assertContains(errorString!!, "The save profile broadcast event was not received")
+        assertContains(errorString!!, "The save profile broadcast was not received")
     }
 
     @Test
@@ -96,19 +96,32 @@ class ProfileInstallBroadcastTest {
 
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.N)
     @Test
-    fun saveProfilesForAllProcesses() {
+    fun saveProfilesForAllProcesses_target() {
+        // first command just used to wake target - otherwise we'd get 0
+        ProfileInstallBroadcast.dropShaderCache(Packages.TARGET)
+
         assertEquals(
-            expected = ProfileInstallBroadcast.SaveProfileResult(1, null),
-            actual = ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.TARGET)
+            ProfileInstallBroadcast.SaveProfileResult(1, null),
+            ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.TARGET)
         )
     }
 
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.N)
     @Test
+    fun saveProfilesForAllProcesses_self() {
+        val result = ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.TEST)
+        // only one process, but we don't care if succeeds
+        // (since this test may not depend on profileinstaller)
+        assertEquals(1, result.processCount)
+    }
+
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.N)
+    @Test
     fun saveProfilesForAllProcesses_missing() {
-        val result = ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.MISSING)
-        assertEquals(0, result.processCount)
-        assertNull(result.error)
+        assertEquals(
+            ProfileInstallBroadcast.SaveProfileResult(0, null),
+            ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.MISSING)
+        )
     }
 
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.N)
@@ -120,6 +133,6 @@ class ProfileInstallBroadcastTest {
         val result = ProfileInstallBroadcast.saveProfilesForAllProcesses(Packages.TEST)
         assertEquals(1, result.processCount)
         assertNotNull(result.error)
-        assertContains(result.error!!, "The save profile broadcast event was not received.")
+        assertContains(result.error!!, "The save profile broadcast was not received.")
     }
 }

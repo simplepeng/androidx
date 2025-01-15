@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
+@file:JvmName("SavedStateWriterKt")
+@file:JvmMultifileClass
+@file:Suppress("NOTHING_TO_INLINE")
+
 package androidx.savedstate
 
 import kotlin.jvm.JvmInline
+import kotlin.jvm.JvmMultifileClass
+import kotlin.jvm.JvmName
 
 /**
  * An inline class that encapsulates an opaque [SavedState], and provides an API for writing the
@@ -26,6 +32,7 @@ import kotlin.jvm.JvmInline
  */
 @JvmInline
 public expect value class SavedStateWriter
+@PublishedApi
 internal constructor(
     @PublishedApi internal val source: SavedState,
 ) {
@@ -37,6 +44,22 @@ internal constructor(
      * @param value The boolean value to store.
      */
     public inline fun putBoolean(key: String, value: Boolean)
+
+    /**
+     * Stores a char value associated with the specified key in the [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The char value to store.
+     */
+    public inline fun putChar(key: String, value: Char)
+
+    /**
+     * Stores a char sequence value associated with the specified key in the [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The char sequence value to store.
+     */
+    public inline fun putCharSequence(key: String, value: CharSequence)
 
     /**
      * Stores a double value associated with the specified key in the [SavedState].
@@ -63,6 +86,21 @@ internal constructor(
     public inline fun putInt(key: String, value: Int)
 
     /**
+     * Stores an int value associated with the specified key in the [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The [Long] value to store.
+     */
+    public inline fun putLong(key: String, value: Long)
+
+    /**
+     * Stores a null reference associated with the specified key in the [SavedState].
+     *
+     * @param key The key to associate the null reference.
+     */
+    public inline fun putNull(key: String)
+
+    /**
      * Stores a string value associated with the specified key in the [SavedState].
      *
      * @param key The key to associate the value with.
@@ -74,17 +112,97 @@ internal constructor(
      * Stores a list of elements of [Int] associated with the specified key in the [SavedState].
      *
      * @param key The key to associate the value with.
-     * @param values The list of elements to store.
+     * @param value The list of elements to store.
      */
-    public inline fun putIntList(key: String, values: List<Int>)
+    public inline fun putIntList(key: String, value: List<Int>)
+
+    /**
+     * Stores a list of elements of [CharSequence] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The list of elements to store.
+     */
+    public inline fun putCharSequenceList(key: String, value: List<CharSequence>)
 
     /**
      * Stores a list of elements of [String] associated with the specified key in the [SavedState].
      *
      * @param key The key to associate the value with.
-     * @param values The list of elements to store.
+     * @param value The list of elements to store.
      */
-    public inline fun putStringList(key: String, values: List<String>)
+    public inline fun putStringList(key: String, value: List<String>)
+
+    /**
+     * Stores an [Array] of elements of [Boolean] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putBooleanArray(key: String, value: BooleanArray)
+
+    /**
+     * Stores an [Array] of elements of [Boolean] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putCharArray(key: String, value: CharArray)
+
+    /**
+     * Stores an [Array] of elements of [CharSequence] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putCharSequenceArray(key: String, value: Array<CharSequence>)
+
+    /**
+     * Stores an [Array] of elements of [Double] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putDoubleArray(key: String, value: DoubleArray)
+
+    /**
+     * Stores an [Array] of elements of [Float] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putFloatArray(key: String, value: FloatArray)
+
+    /**
+     * Stores an [Array] of elements of [Int] associated with the specified key in the [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putIntArray(key: String, value: IntArray)
+
+    /**
+     * Stores an [Array] of elements of [Long] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putLongArray(key: String, value: LongArray)
+
+    /**
+     * Stores an [Array] of elements of [String] associated with the specified key in the
+     * [SavedState].
+     *
+     * @param key The key to associate the value with.
+     * @param value The array of elements to store.
+     */
+    public inline fun putStringArray(key: String, value: Array<String>)
 
     /**
      * Stores a [SavedState] object associated with the specified key in the [SavedState].
@@ -97,9 +215,9 @@ internal constructor(
     /**
      * Stores all key-value pairs from the provided [SavedState] into this [SavedState].
      *
-     * @param values The [SavedState] containing the key-value pairs to add.
+     * @param from The [SavedState] containing the key-value pairs to add.
      */
-    public inline fun putAll(values: SavedState)
+    public inline fun putAll(from: SavedState)
 
     /**
      * Removes the value associated with the specified key from the [SavedState].

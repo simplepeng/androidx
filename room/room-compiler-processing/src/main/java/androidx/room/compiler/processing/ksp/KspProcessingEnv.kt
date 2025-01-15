@@ -156,7 +156,7 @@ internal class KspProcessingEnv(
             .getDeclarationsFromPackage(packageName)
             .filterIsInstance<KSClassDeclaration>()
             .filterNot { it.classKind == ClassKind.ENUM_ENTRY }
-            .map { KspTypeElement.create(this, it) }
+            .map { this.wrapClassDeclaration(it) }
             .toList()
     }
 
@@ -171,8 +171,19 @@ internal class KspProcessingEnv(
     }
 
     override fun findGeneratedAnnotation(): XTypeElement? {
-        return findTypeElement("javax.annotation.processing.Generated")
-            ?: findTypeElement("javax.annotation.Generated")
+        val jvmPlatform =
+            delegate.platforms.filterIsInstance<JvmPlatformInfo>().singleOrNull() ?: return null
+        val jvmTarget =
+            try {
+                jvmPlatform.jvmTarget.toInt()
+            } catch (ex: NumberFormatException) {
+                null
+            }
+        return if (jvmTarget != null && jvmTarget > 9) {
+            findTypeElement("javax.annotation.processing.Generated")
+        } else {
+            findTypeElement("javax.annotation.Generated")
+        }
     }
 
     override fun getDeclaredType(type: XTypeElement, vararg types: XType): KspType {
@@ -318,10 +329,6 @@ internal class KspProcessingEnv(
             val javaPrimitive = KspTypeMapper.getPrimitiveJavaTypeName(qName)
             if (javaPrimitive != null) {
                 return KspPrimitiveType(this, ksType, originalAnnotations)
-            }
-            // special case for void
-            if (qName == "kotlin.Unit") {
-                return voidType
             }
         }
         return arrayTypeFactory.createIfArray(ksType)

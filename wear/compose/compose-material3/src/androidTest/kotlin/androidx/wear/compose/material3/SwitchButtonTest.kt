@@ -16,8 +16,6 @@
 
 package androidx.wear.compose.material3
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -547,7 +545,6 @@ class SwitchButtonTest {
         Assert.assertEquals(2, secondaryLabelMaxLines)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun switch_button_allows_checked_background_color_override() =
         verifySwitchButtonBackgroundColor(
@@ -556,7 +553,6 @@ class SwitchButtonTest {
             expectedColor = CHECKED_COLOR
         )
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun switch_button_allows_unchecked_background_color_override() =
         verifySwitchButtonBackgroundColor(
@@ -565,7 +561,6 @@ class SwitchButtonTest {
             expectedColor = UNCHECKED_COLOR
         )
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun split_switch_button_allows_checked_background_color_override() =
         verifySplitSwitchButtonBackgroundColor(
@@ -574,7 +569,6 @@ class SwitchButtonTest {
             expectedColor = CHECKED_COLOR
         )
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun split_switch_button_allows_unchecked_background_color_override() =
         verifySplitSwitchButtonBackgroundColor(
@@ -583,55 +577,46 @@ class SwitchButtonTest {
             expectedColor = UNCHECKED_COLOR
         )
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_switch_button_colors_enabled_and_checked() {
         rule.verifySwitchButtonColors(checked = true, enabled = true)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_switch_button_colors_enabled_and_unchecked() {
         rule.verifySwitchButtonColors(checked = false, enabled = true)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_switch_button_colors_disabled_and_checked() {
         rule.verifySwitchButtonColors(checked = true, enabled = false)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_switch_button_colors_disabled_and_unchecked() {
         rule.verifySwitchButtonColors(checked = false, enabled = false)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_split_switch_button_colors_enabled_and_checked() {
         rule.verifySplitToggleButtonColors(checked = true, enabled = true)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_split_switch_button_colors_enabled_and_unchecked() {
         rule.verifySplitToggleButtonColors(checked = false, enabled = true)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_split_switch_button_colors_disabled_and_checked() {
         rule.verifySplitToggleButtonColors(checked = true, enabled = false)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun verify_split_toggle_button_colors_disabled_and_unchecked() {
         rule.verifySplitToggleButtonColors(checked = false, enabled = false)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun switch_checked_colors_are_customisable() {
         val thumbColor = Color.Green
@@ -660,7 +645,6 @@ class SwitchButtonTest {
         image.assertContainsColor(trackBorderColor)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun switch_unchecked_colors_are_customisable() {
         val thumbColor = Color.Green
@@ -688,7 +672,6 @@ class SwitchButtonTest {
         image.assertContainsColor(trackBorderColor)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun disabled_switch_checked_colors_are_customisable() {
         val thumbColor = Color.Green
@@ -717,7 +700,6 @@ class SwitchButtonTest {
         image.assertContainsColor(trackBorderColor)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun disabled_switch_unchecked_colors_are_customisable() {
         val thumbColor = Color.Green
@@ -742,7 +724,6 @@ class SwitchButtonTest {
         image.assertContainsColor(trackBorderColor)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun verifySwitchButtonBackgroundColor(
         checked: Boolean,
         enabled: Boolean,
@@ -765,7 +746,6 @@ class SwitchButtonTest {
         rule.onNodeWithTag(TEST_TAG).captureToImage().assertContainsColor(expectedColor)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun verifySplitSwitchButtonBackgroundColor(
         checked: Boolean,
         enabled: Boolean,
@@ -834,7 +814,6 @@ private fun SplitSwitchButtonWithDefaults(
         toggleContentDescription = "description",
     )
 
-@RequiresApi(Build.VERSION_CODES.O)
 private fun ComposeContentTestRule.verifySwitchButtonColors(enabled: Boolean, checked: Boolean) {
     val testBackgroundColor = Color.White
     var expectedContainerColor = Color.Transparent
@@ -874,7 +853,6 @@ private fun ComposeContentTestRule.verifySwitchButtonColors(enabled: Boolean, ch
         )
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
 private fun ComposeContentTestRule.verifySplitToggleButtonColors(
     enabled: Boolean,
     checked: Boolean
@@ -887,14 +865,10 @@ private fun ComposeContentTestRule.verifySplitToggleButtonColors(
     var actualSecondaryLabelColor = Color.Transparent
     setContentWithTheme {
         expectedContainerColor =
-            split_switch_button_container_color(checked)
-                .withDisabledAlphaApplied(enabled = enabled)
-                .compositeOver(testBackgroundColor)
+            split_switch_button_container_color(checked, enabled).compositeOver(testBackgroundColor)
         expectedLabelColor =
             split_switch_button_content_color(checked).withDisabledAlphaApplied(enabled = enabled)
-        expectedSecondaryLabelColor =
-            split_switch_button_secondary_label_color(checked)
-                .withDisabledAlphaApplied(enabled = enabled)
+        expectedSecondaryLabelColor = split_switch_button_secondary_label_color(checked, enabled)
         Box(Modifier.fillMaxSize().background(testBackgroundColor)) {
             SplitSwitchButton(
                 modifier = Modifier.testTag(TEST_TAG),
@@ -938,7 +912,7 @@ private fun switch_button_content_color(checked: Boolean, enabled: Boolean): Col
 
 @Composable
 private fun switch_button_secondary_label_color(checked: Boolean, enabled: Boolean): Color {
-    return if (checked && enabled) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+    return if (checked && enabled) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
     else if (!checked && enabled) MaterialTheme.colorScheme.onSurfaceVariant
     else MaterialTheme.colorScheme.onSurface.toDisabledColor(disabledAlpha = 0.38f)
 }
@@ -950,8 +924,9 @@ private fun switch_button_icon_color(enabled: Boolean): Color {
 }
 
 @Composable
-private fun split_switch_button_container_color(checked: Boolean): Color {
-    return if (checked) MaterialTheme.colorScheme.primaryContainer
+private fun split_switch_button_container_color(checked: Boolean, enabled: Boolean): Color {
+    return if (!enabled) MaterialTheme.colorScheme.onSurface.toDisabledColor(disabledAlpha = 0.12f)
+    else if (checked) MaterialTheme.colorScheme.primaryContainer
     else MaterialTheme.colorScheme.surfaceContainer
 }
 
@@ -962,8 +937,9 @@ private fun split_switch_button_content_color(checked: Boolean): Color {
 }
 
 @Composable
-private fun split_switch_button_secondary_label_color(checked: Boolean): Color {
-    return if (checked) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+private fun split_switch_button_secondary_label_color(checked: Boolean, enabled: Boolean): Color {
+    return if (!enabled) MaterialTheme.colorScheme.onSurface.toDisabledColor(disabledAlpha = 0.38f)
+    else if (checked) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
     else MaterialTheme.colorScheme.onSurfaceVariant
 }
 

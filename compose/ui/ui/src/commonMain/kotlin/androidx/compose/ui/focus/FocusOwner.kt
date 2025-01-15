@@ -130,7 +130,10 @@ internal interface FocusOwner : FocusManager {
     fun dispatchInterceptedSoftKeyboardEvent(keyEvent: KeyEvent): Boolean
 
     /** Dispatches a rotary scroll event through the compose hierarchy. */
-    fun dispatchRotaryEvent(event: RotaryScrollEvent): Boolean
+    fun dispatchRotaryEvent(
+        event: RotaryScrollEvent,
+        onFocusedItem: () -> Boolean = { false }
+    ): Boolean
 
     /** Schedule a FocusTarget node to be invalidated after onApplyChanges. */
     fun scheduleInvalidation(node: FocusTargetNode)
@@ -141,6 +144,15 @@ internal interface FocusOwner : FocusManager {
     /** Schedule a FocusProperties node to be invalidated after onApplyChanges. */
     fun scheduleInvalidation(node: FocusPropertiesModifierNode)
 
+    /** Schedule the owner to be invalidated after onApplyChanges. */
+    fun scheduleInvalidationForOwner()
+
     /** The focus state of the root focus node. */
     val rootState: FocusState
+
+    /** The currently active [FocusTargetNode] or null if no node has focus. */
+    var activeFocusTargetNode: FocusTargetNode?
+
+    /** Whether the active focus target node has requested focus capture. */
+    var isFocusCaptured: Boolean
 }

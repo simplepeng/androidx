@@ -258,7 +258,7 @@ class SegmentedCircularProgressIndicatorTest {
         rule
             .onNodeWithTag(TEST_TAG)
             .captureToImage()
-            .assertColorInPercentageRange(Color.Yellow, 14f..16f)
+            .assertColorInPercentageRange(Color.Yellow, 15f..18f)
     }
 
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.O)
@@ -406,6 +406,10 @@ class SegmentedCircularProgressIndicatorTest {
 
     private fun setContentWithTheme(composable: @Composable BoxScope.() -> Unit) {
         // Use constant size modifier to limit relative color percentage ranges.
-        rule.setContentWithTheme(modifier = Modifier.size(204.dp), composable = composable)
+        rule.setContentWithTheme(modifier = Modifier.size(COMPONENT_SIZE)) {
+            ScreenConfiguration(SCREEN_SIZE_LARGE) { composable() }
+        }
     }
 }
+
+private val COMPONENT_SIZE = 204.dp

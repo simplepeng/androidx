@@ -21,6 +21,8 @@
  * Please use that script when creating a new project, rather than copying an existing project and
  * modifying its settings.
  */
+
+import androidx.build.KotlinTarget
 import androidx.build.LibraryType
 import androidx.build.PlatformIdentifier
 
@@ -129,6 +131,7 @@ androidXMultiplatform {
                 implementation(libs.mockitoKotlin4)
                 implementation(libs.byteBuddy)
 
+                implementation(project(":compose:foundation:foundation"))
                 implementation(project(":compose:animation:animation-core"))
                 implementation(project(":compose:material:material"))
                 implementation(project(":compose:test-utils"))
@@ -138,7 +141,7 @@ androidXMultiplatform {
 }
 
 android {
-    compileSdk 35
+    compileSdk = 35
     sourceSets {
         test.java.srcDirs += "src/androidCommonTest/kotlin"
         androidTest.java.srcDirs += "src/androidCommonTest/kotlin"
@@ -147,7 +150,7 @@ android {
     lintOptions {
         disable("InvalidPackage")
     }
-    namespace "androidx.compose.ui.test"
+    namespace = "androidx.compose.ui.test"
     // TODO(b/345531033)
     experimentalProperties["android.lint.useK2Uast"] = false
 }
@@ -160,4 +163,5 @@ androidx {
     legacyDisableKotlinStrictApiMode = true
     metalavaK2UastEnabled = false
     samples(project(":compose:ui:ui-test:ui-test-samples"))
+    kotlinTarget = KotlinTarget.KOTLIN_1_9
 }

@@ -36,10 +36,11 @@ android {
         test.java.srcDirs += "src/test-common/java"
         androidTest.java.srcDirs += "src/test-common/java"
     }
-    namespace "androidx.datastore.preferences.rxjava2"
+    namespace = "androidx.datastore.preferences.rxjava2"
 }
 
 dependencies {
+    api(libs.jspecify)
     api(libs.kotlinStdlib)
     api(libs.kotlinCoroutinesCore)
     api("androidx.annotation:annotation:1.8.1")

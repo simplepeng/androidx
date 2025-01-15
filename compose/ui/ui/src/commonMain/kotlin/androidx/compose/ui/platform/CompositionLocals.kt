@@ -27,6 +27,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.autofill.Autofill
+import androidx.compose.ui.autofill.AutofillManager
 import androidx.compose.ui.autofill.AutofillTree
 import androidx.compose.ui.draw.DrawModifier
 import androidx.compose.ui.focus.FocusManager
@@ -65,9 +66,23 @@ val LocalAutofill = staticCompositionLocalOf<Autofill?> { null }
 val LocalAutofillTree =
     staticCompositionLocalOf<AutofillTree> { noLocalProvidedFor("LocalAutofillTree") }
 
+/**
+ * The CompositionLocal that can be used to trigger autofill actions. Eg. [AutofillManager.commit].
+ */
+@Suppress("OPT_IN_MARKER_ON_WRONG_TARGET")
+val LocalAutofillManager =
+    staticCompositionLocalOf<AutofillManager?> { noLocalProvidedFor("LocalAutofillManager") }
+
 /** The CompositionLocal to provide communication with platform clipboard service. */
+@Deprecated(
+    "Use LocalClipboard instead which supports suspend functions",
+    ReplaceWith("LocalClipboard", "androidx.compose.ui.platform.LocalClipboard")
+)
 val LocalClipboardManager =
     staticCompositionLocalOf<ClipboardManager> { noLocalProvidedFor("LocalClipboardManager") }
+
+/** The CompositionLocal to provide communication with platform clipboard service. */
+val LocalClipboard = staticCompositionLocalOf<Clipboard> { noLocalProvidedFor("LocalClipboard") }
 
 /**
  * The CompositionLocal to provide access to a [GraphicsContext] instance for creation of
@@ -76,8 +91,9 @@ val LocalClipboardManager =
  * Consumers that access this Local directly and call [GraphicsContext.createGraphicsLayer] are
  * responsible for calling [GraphicsContext.releaseGraphicsLayer].
  *
- * It is recommended that consumers invoke [rememberGraphicsLayer] instead to ensure that a
- * [GraphicsLayer] is released when the corresponding composable is disposed.
+ * It is recommended that consumers invoke [rememberGraphicsLayer][import
+ * androidx.compose.ui.graphics.rememberGraphicsLayer] instead to ensure that a [GraphicsLayer] is
+ * released when the corresponding composable is disposed.
  */
 val LocalGraphicsContext =
     staticCompositionLocalOf<GraphicsContext> { noLocalProvidedFor("LocalGraphicsContext") }
@@ -193,8 +209,10 @@ internal fun ProvideCommonCompositionLocals(
     CompositionLocalProvider(
         LocalAccessibilityManager provides owner.accessibilityManager,
         LocalAutofill provides owner.autofill,
+        LocalAutofillManager provides owner.autofillManager,
         LocalAutofillTree provides owner.autofillTree,
         LocalClipboardManager provides owner.clipboardManager,
+        LocalClipboard provides owner.clipboard,
         LocalDensity provides owner.density,
         LocalFocusManager provides owner.focusOwner,
         @Suppress("DEPRECATION") LocalFontLoader providesDefault

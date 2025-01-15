@@ -162,6 +162,12 @@ internal constructor(
         @FloatRange(from = -0.5, to = 0.5) currentPageOffsetFraction: Float = 0f
     ) : this(currentPage, currentPageOffsetFraction, null)
 
+    internal var hasLookaheadOccurred: Boolean = false
+        private set
+
+    internal var approachLayoutInfo: PagerMeasureResult? = null
+        private set
+
     /**
      * The total amount of pages present in this pager. The source of this data should be
      * observable.
@@ -186,9 +192,9 @@ internal constructor(
     internal var firstVisiblePageOffset = 0
         private set
 
-    private var maxScrollOffset: Long = Long.MAX_VALUE
+    internal var maxScrollOffset: Long = Long.MAX_VALUE
 
-    private var minScrollOffset: Long = 0L
+    internal var minScrollOffset: Long = 0L
 
     private var accumulator: Float = 0.0f
 
@@ -247,13 +253,32 @@ internal constructor(
         }
 
         /** Apply the scroll delta */
-        val scrolledLayoutInfo =
+        var scrolledLayoutInfo =
             pagerLayoutInfoState.value.copyWithScrollDeltaWithoutRemeasure(
                 delta = -scrollDelta.toInt()
             )
+        if (scrolledLayoutInfo != null && this.approachLayoutInfo != null) {
+            // if we were able to scroll the lookahead layout info without remeasure, lets
+            // try to do the same for post lookahead layout info (sometimes they diverge).
+            val scrolledApproachLayoutInfo =
+                approachLayoutInfo?.copyWithScrollDeltaWithoutRemeasure(
+                    delta = -scrollDelta.toInt(),
+                )
+            if (scrolledApproachLayoutInfo != null) {
+                // we can apply scroll delta for both phases without remeasure
+                approachLayoutInfo = scrolledApproachLayoutInfo
+            } else {
+                // we can't apply scroll delta for post lookahead, so we have to remeasure
+                scrolledLayoutInfo = null
+            }
+        }
         if (scrolledLayoutInfo != null) {
             debugLog { "Will Apply Without Remeasure" }
-            applyMeasureResult(result = scrolledLayoutInfo, visibleItemsStayedTheSame = true)
+            applyMeasureResult(
+                result = scrolledLayoutInfo,
+                isLookingAhead = hasLookaheadOccurred,
+                visibleItemsStayedTheSame = true
+            )
             // we don't need to remeasure, so we only trigger re-placement:
             placementScopeInvalidator.invalidateScope()
             layoutWithoutMeasurement++
@@ -426,7 +451,10 @@ internal constructor(
     val currentPageOffsetFraction: Float
         get() = scrollPosition.currentPageOffsetFraction
 
-    internal val prefetchState = LazyLayoutPrefetchState(prefetchScheduler)
+    internal val prefetchState =
+        LazyLayoutPrefetchState(prefetchScheduler) {
+            Snapshot.withoutReadObservation { schedulePrefetch(firstVisiblePage) }
+        }
 
     internal val beyondBoundsInfo = LazyLayoutBeyondBoundsInfo()
 
@@ -592,8 +620,7 @@ internal constructor(
                     targetPage,
                     targetPageOffsetToSnappedPosition,
                     animationSpec,
-                    updateTargetPage = { updateTargetPage(it) },
-                    this
+                    updateTargetPage = { updateTargetPage(it) }
                 )
         }
     }
@@ -642,24 +669,36 @@ internal constructor(
     /** Updates the state with the new calculated scroll position and consumed scroll. */
     internal fun applyMeasureResult(
         result: PagerMeasureResult,
+        isLookingAhead: Boolean,
         visibleItemsStayedTheSame: Boolean = false
     ) {
-        debugLog { "Applying Measure Result" }
-        if (visibleItemsStayedTheSame) {
-            scrollPosition.updateCurrentPageOffsetFraction(result.currentPageOffsetFraction)
+        if (!isLookingAhead && hasLookaheadOccurred) {
+            debugLog { "Applying Approach Measure Result" }
+            // If there was already a lookahead pass, record this result as Approach result
+            approachLayoutInfo = result
         } else {
-            scrollPosition.updateFromMeasureResult(result)
-            cancelPrefetchIfVisibleItemsChanged(result)
+            debugLog { "Applying Measure Result" }
+            if (isLookingAhead) {
+                hasLookaheadOccurred = true
+            }
+            if (visibleItemsStayedTheSame) {
+                scrollPosition.updateCurrentPageOffsetFraction(result.currentPageOffsetFraction)
+            } else {
+                scrollPosition.updateFromMeasureResult(result)
+                cancelPrefetchIfVisibleItemsChanged(result)
+            }
+            pagerLayoutInfoState.value = result
+            canScrollForward = result.canScrollForward
+            canScrollBackward = result.canScrollBackward
+            result.firstVisiblePage?.let { firstVisiblePage = it.index }
+            firstVisiblePageOffset = result.firstVisiblePageScrollOffset
+            tryRunPrefetch(result)
+            maxScrollOffset = result.calculateNewMaxScrollOffset(pageCount)
+            minScrollOffset = result.calculateNewMinScrollOffset(pageCount)
+            debugLog {
+                "Finished Applying Measure Result" + "\nNew maxScrollOffset=$maxScrollOffset"
+            }
         }
-        pagerLayoutInfoState.value = result
-        canScrollForward = result.canScrollForward
-        canScrollBackward = result.canScrollBackward
-        result.firstVisiblePage?.let { firstVisiblePage = it.index }
-        firstVisiblePageOffset = result.firstVisiblePageScrollOffset
-        tryRunPrefetch(result)
-        maxScrollOffset = result.calculateNewMaxScrollOffset(pageCount)
-        minScrollOffset = result.calculateNewMinScrollOffset(pageCount)
-        debugLog { "Finished Applying Measure Result" + "\nNew maxScrollOffset=$maxScrollOffset" }
     }
 
     private fun tryRunPrefetch(result: PagerMeasureResult) =
@@ -688,7 +727,7 @@ internal constructor(
             sign(scrollDelta) == sign(-upDownDifference.x)
         } || isNotGestureAction()
 
-    private fun isNotGestureAction(): Boolean =
+    internal fun isNotGestureAction(): Boolean =
         upDownDifference.x.toInt() == 0 && upDownDifference.y.toInt() == 0
 
     private fun notifyPrefetch(delta: Float, info: PagerLayoutInfo) {
@@ -863,7 +902,8 @@ private inline fun debugLog(generateMsg: () -> String) {
 internal fun PagerLayoutInfo.calculateNewMaxScrollOffset(pageCount: Int): Long {
     val pageSizeWithSpacing = pageSpacing + pageSize
     val maxScrollPossible =
-        (pageCount.toLong()) * pageSizeWithSpacing + beforeContentPadding + afterContentPadding
+        (pageCount.toLong()) * pageSizeWithSpacing + beforeContentPadding + afterContentPadding -
+            pageSpacing
     val layoutSize =
         if (orientation == Orientation.Horizontal) viewportSize.width else viewportSize.height
 
@@ -914,43 +954,40 @@ private suspend fun LazyLayoutScrollScope.animateScrollToPage(
     targetPage: Int,
     targetPageOffsetToSnappedPosition: Float,
     animationSpec: AnimationSpec<Float>,
-    updateTargetPage: ScrollScope.(Int) -> Unit,
-    scrollScope: ScrollScope
+    updateTargetPage: ScrollScope.(Int) -> Unit
 ) {
-    with(scrollScope) {
-        updateTargetPage(targetPage)
-        val forward = targetPage > firstVisibleItemIndex
-        val visiblePages = lastVisibleItemIndex - firstVisibleItemIndex + 1
-        if (
-            ((forward && targetPage > lastVisibleItemIndex) ||
-                (!forward && targetPage < firstVisibleItemIndex)) &&
-                abs(targetPage - firstVisibleItemIndex) >= MaxPagesForAnimateScroll
-        ) {
-            val preJumpPosition =
-                if (forward) {
-                    (targetPage - visiblePages).coerceAtLeast(firstVisibleItemIndex)
-                } else {
-                    (targetPage + visiblePages).coerceAtMost(firstVisibleItemIndex)
-                }
+    updateTargetPage(targetPage)
+    val forward = targetPage > firstVisibleItemIndex
+    val visiblePages = lastVisibleItemIndex - firstVisibleItemIndex + 1
+    if (
+        ((forward && targetPage > lastVisibleItemIndex) ||
+            (!forward && targetPage < firstVisibleItemIndex)) &&
+            abs(targetPage - firstVisibleItemIndex) >= MaxPagesForAnimateScroll
+    ) {
+        val preJumpPosition =
+            if (forward) {
+                (targetPage - visiblePages).coerceAtLeast(firstVisibleItemIndex)
+            } else {
+                (targetPage + visiblePages).coerceAtMost(firstVisibleItemIndex)
+            }
 
-            debugLog { "animateScrollToPage with pre-jump to position=$preJumpPosition" }
+        debugLog { "animateScrollToPage with pre-jump to position=$preJumpPosition" }
 
-            // Pre-jump to 1 viewport away from destination page, if possible
-            snapToItem(preJumpPosition, 0)
-        }
+        // Pre-jump to 1 viewport away from destination page, if possible
+        snapToItem(preJumpPosition, 0)
+    }
 
-        // The final delta displacement will be the difference between the pages offsets
-        // discounting whatever offset the original page had scrolled plus the offset
-        // fraction requested by the user.
-        val displacement = calculateDistanceTo(targetPage) + targetPageOffsetToSnappedPosition
+    // The final delta displacement will be the difference between the pages offsets
+    // discounting whatever offset the original page had scrolled plus the offset
+    // fraction requested by the user.
+    val displacement = calculateDistanceTo(targetPage) + targetPageOffsetToSnappedPosition
 
-        debugLog { "animateScrollToPage $displacement pixels" }
-        var previousValue = 0f
-        animate(0f, displacement, animationSpec = animationSpec) { currentValue, _ ->
-            val delta = currentValue - previousValue
-            val consumed = scrollBy(delta)
-            debugLog { "Dispatched Delta=$delta Consumed=$consumed" }
-            previousValue += consumed
-        }
+    debugLog { "animateScrollToPage $displacement pixels" }
+    var previousValue = 0f
+    animate(0f, displacement, animationSpec = animationSpec) { currentValue, _ ->
+        val delta = currentValue - previousValue
+        val consumed = scrollBy(delta)
+        debugLog { "Dispatched Delta=$delta Consumed=$consumed" }
+        previousValue += consumed
     }
 }

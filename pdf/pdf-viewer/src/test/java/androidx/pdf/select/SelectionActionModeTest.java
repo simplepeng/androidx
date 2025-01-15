@@ -22,10 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Context;
-import android.os.Build;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.pdf.models.PageSelection;
 import androidx.pdf.util.ObservableValue;
 import androidx.pdf.util.Observables;
@@ -33,14 +30,13 @@ import androidx.pdf.viewer.PageMosaicView;
 import androidx.pdf.viewer.PageViewFactory;
 import androidx.pdf.viewer.PaginatedView;
 
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
 
-//TODO: Remove minsdk check after sdk extension 13 release
-@Config(minSdk = Build.VERSION_CODES.VANILLA_ICE_CREAM)
 public class SelectionActionModeTest {
 
     @Mock
@@ -76,19 +72,16 @@ public class SelectionActionModeTest {
     public void testStartActionMode() {
         SelectionModel<PageSelection> selectionModel = new SelectionModel<PageSelection>() {
 
-            @NonNull
             @Override
-            public ObservableValue<PageSelection> selection() {
+            public @NonNull ObservableValue<PageSelection> selection() {
                 return new ObservableValue<PageSelection>() {
-                    @Nullable
                     @Override
-                    public PageSelection get() {
+                    public @Nullable PageSelection get() {
                         return mPageSelection;
                     }
 
-                    @NonNull
                     @Override
-                    public Object addObserver(ValueObserver<PageSelection> observer) {
+                    public @NonNull Object addObserver(ValueObserver<PageSelection> observer) {
                         observer.onChange(null, mPageSelection);
                         return observer;
                     }
@@ -99,9 +92,9 @@ public class SelectionActionModeTest {
                     }
                 };
             }
-            @NonNull
+
             @Override
-            public String getText() {
+            public @NonNull String getText() {
                 return "";
             }
 

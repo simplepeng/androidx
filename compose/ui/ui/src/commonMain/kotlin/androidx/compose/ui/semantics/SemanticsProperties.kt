@@ -17,7 +17,6 @@
 package androidx.compose.ui.semantics
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.autofill.ContentDataType
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.geometry.Offset
@@ -101,8 +100,7 @@ object SemanticsProperties {
         replaceWith = ReplaceWith("HideFromAccessibility")
     )
     @Suppress("OPT_IN_MARKER_ON_WRONG_TARGET")
-    @get:ExperimentalComposeUiApi
-    @ExperimentalComposeUiApi
+    // Retain for binary compatibility with aosp/3341487 in 1.7
     val InvisibleToUser =
         SemanticsPropertyKey<Unit>(
             name = "InvisibleToUser",
@@ -117,8 +115,7 @@ object SemanticsProperties {
         )
 
     /** @see SemanticsPropertyReceiver.contentType */
-    // TODO(b/333102566): make these semantics properties public when Autofill is ready to go live
-    internal val ContentType =
+    val ContentType =
         SemanticsPropertyKey<ContentType>(
             name = "ContentType",
             mergePolicy = { parentValue, _ ->
@@ -128,8 +125,7 @@ object SemanticsProperties {
         )
 
     /** @see SemanticsPropertyReceiver.contentDataType */
-    // TODO(b/333102566): make these semantics properties public when Autofill is ready to go live
-    internal val ContentDataType =
+    val ContentDataType =
         SemanticsPropertyKey<ContentDataType>(
             name = "ContentDataType",
             mergePolicy = { parentValue, _ ->
@@ -287,8 +283,7 @@ object SemanticsActions {
     val ScrollToIndex = ActionPropertyKey<(Int) -> Boolean>("ScrollToIndex")
 
     /** @see SemanticsPropertyReceiver.onAutofillText */
-    // TODO(b/333102566): make this action public when Autofill is ready to go live
-    internal val OnAutofillText = ActionPropertyKey<(AnnotatedString) -> Boolean>("OnAutofillText")
+    val OnAutofillText = ActionPropertyKey<(AnnotatedString) -> Boolean>("OnAutofillText")
 
     /** @see SemanticsPropertyReceiver.setProgress */
     val SetProgress = ActionPropertyKey<(progress: Float) -> Boolean>("SetProgress")
@@ -876,7 +871,7 @@ var SemanticsPropertyReceiver.isContainer by SemanticsProperties.IsContainer
 /**
  * Whether this semantics node is a traversal group.
  *
- * See https://developer.android.com/jetpack/compose/accessibility#modify-traversal-order
+ * See https://developer.android.com/develop/ui/compose/accessibility/traversal
  *
  * @see SemanticsProperties.IsTraversalGroup
  */
@@ -899,7 +894,7 @@ var SemanticsPropertyReceiver.isTraversalGroup by SemanticsProperties.IsTraversa
     replaceWith = ReplaceWith("hideFromAccessibility()"),
 )
 @Suppress("DEPRECATION")
-@ExperimentalComposeUiApi
+// Retain for binary compatibility with aosp/3341487 in 1.7
 fun SemanticsPropertyReceiver.invisibleToUser() {
     this[SemanticsProperties.InvisibleToUser] = Unit
 }
@@ -928,8 +923,7 @@ fun SemanticsPropertyReceiver.hideFromAccessibility() {
  *
  * @see SemanticsProperties.ContentType
  */
-// TODO(b/333102566): make these semantics properties public when Autofill is ready to go live
-internal var SemanticsPropertyReceiver.contentType by SemanticsProperties.ContentType
+var SemanticsPropertyReceiver.contentType by SemanticsProperties.ContentType
 
 /**
  * Content data type information.
@@ -939,8 +933,7 @@ internal var SemanticsPropertyReceiver.contentType by SemanticsProperties.Conten
  *
  * @see SemanticsProperties.ContentType
  */
-// TODO(b/333102566): make these semantics properties public when Autofill is ready to go live
-internal var SemanticsPropertyReceiver.contentDataType by SemanticsProperties.ContentDataType
+var SemanticsPropertyReceiver.contentDataType by SemanticsProperties.ContentDataType
 
 /**
  * A value to manually control screenreader traversal order.
@@ -1212,8 +1205,7 @@ fun SemanticsPropertyReceiver.scrollToIndex(label: String? = null, action: (Int)
  * @param label Optional label for this action.
  * @param action Action to be performed when the [SemanticsActions.OnAutofillText] is called.
  */
-// TODO(b/333102566): make this action public when Autofill is ready to go live
-internal fun SemanticsPropertyReceiver.onAutofillText(
+fun SemanticsPropertyReceiver.onAutofillText(
     label: String? = null,
     action: ((AnnotatedString) -> Boolean)?
 ) {

@@ -25,10 +25,12 @@ import androidx.build.LibraryType
 
 plugins {
     id("AndroidXPlugin")
+    id("kotlin-android")
     id("com.android.library")
 }
 
 dependencies {
+    api(libs.jspecify)
     annotationProcessor(libs.nullaway)
     api("androidx.annotation:annotation:1.8.1")
     api(project(":wear:protolayout:protolayout-expression"))
@@ -46,10 +48,10 @@ dependencies {
 }
 
 android {
-    namespace "androidx.wear.protolayout"
+    namespace = "androidx.wear.protolayout"
 
     defaultConfig {
-        minSdkVersion 26
+        minSdk = 26
     }
     buildTypes.configureEach {
         consumerProguardFiles "proguard-rules.pro"

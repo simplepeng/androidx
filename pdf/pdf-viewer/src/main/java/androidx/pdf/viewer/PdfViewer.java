@@ -33,8 +33,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.annotation.UiThread;
 import androidx.annotation.VisibleForTesting;
@@ -50,6 +48,7 @@ import androidx.pdf.data.PdfStatus;
 import androidx.pdf.data.Range;
 import androidx.pdf.fetcher.Fetcher;
 import androidx.pdf.find.FindInFileView;
+import androidx.pdf.metrics.EventCallback;
 import androidx.pdf.models.Dimensions;
 import androidx.pdf.models.GotoLink;
 import androidx.pdf.models.LinkRects;
@@ -75,6 +74,9 @@ import androidx.pdf.widget.ZoomView.ZoomScroll;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.List;
 
@@ -133,8 +135,7 @@ public class PdfViewer extends LoadingViewer {
     private ValueObserver<ZoomScroll> mZoomScrollObserver;
 
     /** Observer to be set when the view is created. */
-    @Nullable
-    private ValueObserver<ZoomScroll> mPendingScrollPositionObserver;
+    private @Nullable ValueObserver<ZoomScroll> mPendingScrollPositionObserver;
 
     private Object mScrollPositionObserverKey;
 
@@ -161,7 +162,6 @@ public class PdfViewer extends LoadingViewer {
      * After the document content is saved over the original in InkActivity, we set this bit to true
      * so we know to call when the new document content is loaded.
      */
-    private boolean mShouldRedrawOnDocumentLoaded = false;
     private Snackbar mSnackbar;
 
     private LayoutHandler mLayoutHandler;
@@ -179,6 +179,15 @@ public class PdfViewer extends LoadingViewer {
 
     private SelectionActionMode mSelectionActionMode;
 
+    private EventCallback mEventCallback;
+
+    private final ImmersiveModeRequester mImmersiveModeRequester = new ImmersiveModeRequester() {
+        @Override
+        public void requestImmersiveModeChange(boolean enterImmersive) {
+            //TODO: remove this class
+        }
+    };
+
     public PdfViewer() {
         super(SELF_MANAGED_CONTENTS);
     }
@@ -192,9 +201,8 @@ public class PdfViewer extends LoadingViewer {
      * If set, this Viewer will call {@link Activity#finish()} if it can't load the PDF. By default,
      * the value is false.
      */
-    @NonNull
     @CanIgnoreReturnValue
-    public PdfViewer setQuitOnError(boolean quit) {
+    public @NonNull PdfViewer setQuitOnError(boolean quit) {
         getArguments().putBoolean(KEY_QUIT_ON_ERROR, quit);
         return this;
     }
@@ -203,9 +211,8 @@ public class PdfViewer extends LoadingViewer {
      * If set, this viewer will finish the attached activity when the user presses cancel on the
      * prompt for the document password.
      */
-    @NonNull
     @CanIgnoreReturnValue
-    public PdfViewer setExitOnPasswordCancel(boolean shouldExitOnPasswordCancel) {
+    public @NonNull PdfViewer setExitOnPasswordCancel(boolean shouldExitOnPasswordCancel) {
         getArguments().putBoolean(KEY_EXIT_ON_CANCEL, shouldExitOnPasswordCancel);
         return this;
     }
@@ -217,11 +224,10 @@ public class PdfViewer extends LoadingViewer {
         sScreen = new Screen(this.requireActivity().getApplicationContext());
     }
 
-    @NonNull
     @SuppressLint("InflateParams")
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-            @Nullable Bundle savedState) {
+    public @NonNull View onCreateView(@NonNull LayoutInflater inflater,
+            @Nullable ViewGroup container, @Nullable Bundle savedState) {
         super.onCreateView(inflater, container, savedState);
 
         mPdfViewer = (FrameLayout) inflater.inflate(R.layout.pdf_viewer_container, container,
@@ -237,8 +243,7 @@ public class PdfViewer extends LoadingViewer {
         return mPdfViewer;
     }
 
-    @Nullable
-    public static Screen getScreen() {
+    public static @Nullable Screen getScreen() {
         return sScreen;
     }
 
@@ -274,15 +279,18 @@ public class PdfViewer extends LoadingViewer {
         mPaginatedView.setSelectionModel(mSelectionModel);
         mPaginatedView.setSearchModel(mSearchModel);
         mPaginatedView.setPdfLoader(mPdfLoader);
+        mPaginatedView.setMetricEventCallback(mEventCallback);
 
         mSearchQueryObserver =
                 new SearchQueryObserver(mPaginatedView);
         mSearchModel.query().addObserver(mSearchQueryObserver);
 
         mSingleTapHandler = new SingleTapHandler(getContext(), mAnnotationButton, mPaginatedView,
-                mFindInFileView, mZoomView, mSelectionModel, mPaginationModel, mLayoutHandler);
+                mFindInFileView, mZoomView, mSelectionModel, mPaginationModel, mLayoutHandler,
+                mImmersiveModeRequester);
         mPageViewFactory = new PageViewFactory(requireContext(), mPdfLoader,
-                mPaginatedView, mZoomView, mSingleTapHandler, mFindInFileView);
+                mPaginatedView, mZoomView, mSingleTapHandler, mFindInFileView,
+                mEventCallback);
         mPaginatedView.setPageViewFactory(mPageViewFactory);
 
         mSelectionObserver =
@@ -445,7 +453,7 @@ public class PdfViewer extends LoadingViewer {
         }
     }
 
-    private void fetchFile(@NonNull final Uri fileUri) {
+    private void fetchFile(final @NonNull Uri fileUri) {
         Preconditions.checkNotNull(fileUri);
         final String fileName = getFileName(fileUri);
         final FutureValue<Openable> openable;
@@ -478,8 +486,7 @@ public class PdfViewer extends LoadingViewer {
         }
     }
 
-    @Nullable
-    private ContentResolver getResolver() {
+    private @Nullable ContentResolver getResolver() {
         if (getActivity() != null) {
             return getActivity().getContentResolver();
         }
@@ -560,8 +567,8 @@ public class PdfViewer extends LoadingViewer {
                 new PdfLoaderCallbacks() {
                     static final String PASSWORD_DIALOG_TAG = "password-dialog";
 
-                    @Nullable
-                    private PdfPasswordDialog currentPasswordDialog(@Nullable FragmentManager fm) {
+                    private @Nullable PdfPasswordDialog currentPasswordDialog(
+                            @Nullable FragmentManager fm) {
                         if (fm != null) {
                             Fragment passwordDialog = fm.findFragmentByTag(PASSWORD_DIALOG_TAG);
                             if (passwordDialog instanceof PdfPasswordDialog) {
@@ -607,7 +614,7 @@ public class PdfViewer extends LoadingViewer {
                             }
 
                             if (incorrect) {
-                                passwordDialog.retry();
+                                passwordDialog.showIncorrectMessage();
                             }
                         }
                     }
@@ -631,10 +638,6 @@ public class PdfViewer extends LoadingViewer {
                             dismissPasswordDialog();
                             mLayoutHandler.maybeLayoutPages(1);
                             mSearchModel.setNumPages(numPages);
-                        }
-
-                        if (mShouldRedrawOnDocumentLoaded) {
-                            mShouldRedrawOnDocumentLoaded = false;
                         }
 
                         if (mIsAnnotationIntentResolvable) {
