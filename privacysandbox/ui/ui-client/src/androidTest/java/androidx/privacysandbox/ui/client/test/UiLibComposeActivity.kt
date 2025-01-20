@@ -13,17 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package androidx.privacysandbox.ui.client.test
 
-@file:Suppress("NOTHING_TO_INLINE", "KotlinRedundantDiagnosticSuppress")
+import androidx.activity.ComponentActivity
 
-package androidx.compose.runtime.collection
-
-internal actual inline fun <T> Array<out T>.fastCopyInto(
-    destination: Array<T>,
-    destinationOffset: Int,
-    startIndex: Int,
-    endIndex: Int
-): Array<T> {
-    System.arraycopy(this, startIndex, destination, destinationOffset, endIndex - startIndex)
-    return destination
-}
+class UiLibComposeActivity : ComponentActivity() {}

@@ -34,6 +34,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import com.google.common.truth.Truth.assertWithMessage
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import org.junit.Rule
 import org.junit.runner.RunWith
 
@@ -45,7 +46,7 @@ class NavDisplayTest {
     @Test
     fun testContentShown() {
         composeTestRule.setContent {
-            NavDisplay(backstack = mutableStateListOf(first)) { NavRecord(first) { Text(first) } }
+            NavDisplay(backstack = mutableStateListOf(first)) { NavEntry(first) { Text(first) } }
         }
 
         assertThat(composeTestRule.onNodeWithText(first).isDisplayed()).isTrue()
@@ -58,8 +59,8 @@ class NavDisplayTest {
             backstack = remember { mutableStateListOf(first) }
             NavDisplay(backstack = backstack) {
                 when (it) {
-                    first -> NavRecord(first) { Text(first) }
-                    second -> NavRecord(second) { Text(second) }
+                    first -> NavEntry(first) { Text(first) }
+                    second -> NavEntry(second) { Text(second) }
                     else -> error("Invalid key passed")
                 }
             }
@@ -80,8 +81,8 @@ class NavDisplayTest {
             backstack = remember { mutableStateListOf(first) }
             NavDisplay(backstack = backstack) {
                 when (it) {
-                    first -> NavRecord(first) { Text(first) }
-                    second -> NavRecord(second, NavDisplay.isDialog(true)) { Text(second) }
+                    first -> NavEntry(first) { Text(first) }
+                    second -> NavEntry(second, NavDisplay.isDialog(true)) { Text(second) }
                     else -> error("Invalid key passed")
                 }
             }
@@ -105,8 +106,8 @@ class NavDisplayTest {
             backstack = remember { mutableStateListOf(first) }
             NavDisplay(backstack = backstack) {
                 when (it) {
-                    first -> NavRecord(first) { Text(first) }
-                    second -> NavRecord(second) { Text(second) }
+                    first -> NavEntry(first) { Text(first) }
+                    second -> NavEntry(second) { Text(second) }
                     else -> error("Invalid key passed")
                 }
             }
@@ -132,8 +133,8 @@ class NavDisplayTest {
             backstack = remember { mutableStateListOf(first) }
             NavDisplay(backstack = backstack) {
                 when (it) {
-                    first -> NavRecord(first) { numberOnScreen1 = rememberSaveable { increment++ } }
-                    second -> NavRecord(second) {}
+                    first -> NavEntry(first) { numberOnScreen1 = rememberSaveable { increment++ } }
+                    second -> NavEntry(second) {}
                     else -> error("Invalid key passed")
                 }
             }
@@ -142,14 +143,11 @@ class NavDisplayTest {
         composeTestRule.runOnIdle {
             assertWithMessage("Initial number should be 0").that(numberOnScreen1).isEqualTo(0)
             numberOnScreen1 = -1
+            assertWithMessage("The number should be -1").that(numberOnScreen1).isEqualTo(-1)
             backstack.add(second)
         }
 
-        composeTestRule.runOnIdle {
-            assertWithMessage("The number should be -1").that(numberOnScreen1).isEqualTo(-1)
-            // removeLast requires API 35
-            backstack.removeAt(backstack.size - 1)
-        }
+        composeTestRule.runOnIdle { backstack.removeAt(backstack.size - 1) }
 
         composeTestRule.runOnIdle {
             assertWithMessage("The number should be restored").that(numberOnScreen1).isEqualTo(0)
@@ -165,15 +163,14 @@ class NavDisplayTest {
         composeTestRule.setContent {
             mainRegistry = LocalSavedStateRegistryOwner.current.savedStateRegistry
             backstack = remember { mutableStateListOf(first) }
-            val manager = rememberNavWrapperManager(listOf(SavedStateNavContentWrapper))
-            NavDisplay(backstack = backstack, wrapperManager = manager) {
+            NavDisplay(backstack = backstack, localProviders = listOf(SavedStateNavLocalProvider)) {
                 when (it) {
                     first ->
-                        NavRecord(first) {
+                        NavEntry(first) {
                             registry1 = LocalSavedStateRegistryOwner.current.savedStateRegistry
                         }
                     second ->
-                        NavRecord(second) {
+                        NavEntry(second) {
                             registry2 = LocalSavedStateRegistryOwner.current.savedStateRegistry
                         }
                     else -> error("Invalid key passed")
@@ -212,12 +209,12 @@ class NavDisplayTest {
                         2 -> backStack2
                         else -> backStack3
                     },
-                recordProvider =
-                    recordProvider {
-                        record(first) { Text(first) }
-                        record(second) { Text(second) }
-                        record(third) { Text(third) }
-                        record(forth) { Text(forth) }
+                entryProvider =
+                    entryProvider {
+                        entry(first) { Text(first) }
+                        entry(second) { Text(second) }
+                        entry(third) { Text(third) }
+                        entry(forth) { Text(forth) }
                     }
             )
         }
@@ -237,6 +234,43 @@ class NavDisplayTest {
 
         assertThat(backStack3).containsExactly(third, forth)
         assertThat(composeTestRule.onNodeWithText(forth).isDisplayed()).isTrue()
+    }
+
+    @Test
+    fun testInitEmptyBackstackThrows() {
+        lateinit var backstack: MutableList<Any>
+        val fail =
+            assertFailsWith<IllegalArgumentException> {
+                composeTestRule.setContent {
+                    backstack = remember { mutableStateListOf() }
+                    NavDisplay(backstack = backstack) { NavEntry(first) {} }
+                }
+            }
+        assertThat(fail.message).isEqualTo("NavDisplay backstack cannot be empty")
+    }
+
+    @Test
+    fun testPopToEmptyBackstackThrows() {
+        lateinit var backstack: MutableList<Any>
+        composeTestRule.setContent {
+            backstack = remember { mutableStateListOf(first) }
+            NavDisplay(backstack = backstack) {
+                when (it) {
+                    first -> NavEntry(first) { Text(first) }
+                    second -> NavEntry(second) { Text(second) }
+                    else -> error("Invalid key passed")
+                }
+            }
+        }
+
+        assertThat(composeTestRule.onNodeWithText(first).isDisplayed()).isTrue()
+
+        val fail =
+            assertFailsWith<IllegalArgumentException> {
+                composeTestRule.runOnIdle { backstack.clear() }
+                composeTestRule.waitForIdle()
+            }
+        assertThat(fail.message).isEqualTo("NavDisplay backstack cannot be empty")
     }
 }
 

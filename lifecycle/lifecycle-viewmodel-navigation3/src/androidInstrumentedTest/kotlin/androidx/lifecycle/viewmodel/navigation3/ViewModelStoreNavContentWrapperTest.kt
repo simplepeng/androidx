@@ -26,9 +26,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.NavDisplay
-import androidx.navigation3.NavRecord
-import androidx.navigation3.SavedStateNavContentWrapper
-import androidx.navigation3.rememberNavWrapperManager
+import androidx.navigation3.NavEntry
+import androidx.navigation3.SavedStateNavLocalProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import kotlin.test.Test
@@ -37,65 +36,65 @@ import org.junit.runner.RunWith
 
 @LargeTest
 @RunWith(AndroidJUnit4::class)
-class ViewModelStoreNavContentWrapperTest {
+class ViewModelStoreNavLocalProviderTest {
     @get:Rule val composeTestRule = createComposeRule()
 
     @Test
     fun testViewModelProvided() {
-        val savedStateWrapper = SavedStateNavContentWrapper
-        val viewModelWrapper = ViewModelStoreNavContentWrapper
+        val savedStateWrapper = SavedStateNavLocalProvider
+        val viewModelWrapper = ViewModelStoreNavLocalProvider
         lateinit var viewModel1: MyViewModel
         lateinit var viewModel2: MyViewModel
-        val record1Arg = "record1 Arg"
-        val record2Arg = "record2 Arg"
-        val record1 =
-            NavRecord("key1") {
+        val entry1Arg = "entry1 Arg"
+        val entry2Arg = "entry2 Arg"
+        val entry1 =
+            NavEntry("key1") {
                 viewModel1 = viewModel<MyViewModel>()
-                viewModel1.myArg = record1Arg
+                viewModel1.myArg = entry1Arg
             }
-        val record2 =
-            NavRecord("key2") {
+        val entry2 =
+            NavEntry("key2") {
                 viewModel2 = viewModel<MyViewModel>()
-                viewModel2.myArg = record2Arg
+                viewModel2.myArg = entry2Arg
             }
         composeTestRule.setContent {
-            savedStateWrapper.WrapContent(
-                NavRecord(record1.key) { viewModelWrapper.WrapContent(record1) }
+            savedStateWrapper.ProvideToEntry(
+                NavEntry(entry1.key) { viewModelWrapper.ProvideToEntry(entry1) }
             )
-            savedStateWrapper.WrapContent(
-                NavRecord(record2.key) { viewModelWrapper.WrapContent(record2) }
+            savedStateWrapper.ProvideToEntry(
+                NavEntry(entry2.key) { viewModelWrapper.ProvideToEntry(entry2) }
             )
         }
 
         composeTestRule.runOnIdle {
-            assertWithMessage("Incorrect arg for record 1")
+            assertWithMessage("Incorrect arg for entry 1")
                 .that(viewModel1.myArg)
-                .isEqualTo(record1Arg)
-            assertWithMessage("Incorrect arg for record 2")
+                .isEqualTo(entry1Arg)
+            assertWithMessage("Incorrect arg for entry 2")
                 .that(viewModel2.myArg)
-                .isEqualTo(record2Arg)
+                .isEqualTo(entry2Arg)
         }
     }
 
     @Test
-    fun testViewModelNoSavedStateNavContentWrapper() {
-        val viewModelWrapper = ViewModelStoreNavContentWrapper
+    fun testViewModelNoSavedStateNavLocalProvider() {
+        val viewModelWrapper = ViewModelStoreNavLocalProvider
         lateinit var viewModel1: MyViewModel
-        val record1Arg = "record1 Arg"
-        val record1 =
-            NavRecord("key1") {
+        val entry1Arg = "entry1 Arg"
+        val entry1 =
+            NavEntry("key1") {
                 viewModel1 = viewModel<MyViewModel>()
-                viewModel1.myArg = record1Arg
+                viewModel1.myArg = entry1Arg
             }
         try {
-            composeTestRule.setContent { viewModelWrapper.WrapContent(record1) }
+            composeTestRule.setContent { viewModelWrapper.ProvideToEntry(entry1) }
         } catch (e: Exception) {
             assertThat(e)
                 .hasMessageThat()
                 .isEqualTo(
                     "The Lifecycle state is already beyond INITIALIZED. The " +
-                        "ViewModelStoreNavContentWrapper requires adding the " +
-                        "SavedStateNavContentWrapper to ensure support for " +
+                        "ViewModelStoreNavLocalProvider requires adding the " +
+                        "SavedStateNavLocalProvider to ensure support for " +
                         "SavedStateHandles."
                 )
         }
@@ -106,21 +105,17 @@ class ViewModelStoreNavContentWrapperTest {
         lateinit var backStack: MutableList<Any>
         composeTestRule.setContent {
             backStack = remember { mutableStateListOf("Home") }
-            val manager =
-                rememberNavWrapperManager(
-                    listOf(SavedStateNavContentWrapper, ViewModelStoreNavContentWrapper)
-                )
             NavDisplay(
                 backstack = backStack,
-                wrapperManager = manager,
+                localProviders = listOf(SavedStateNavLocalProvider, ViewModelStoreNavLocalProvider),
                 onBack = { backStack.removeAt(backStack.lastIndex) },
             ) { key ->
                 when (key) {
                     "Home" -> {
-                        NavRecord(key) { viewModel<HomeViewModel>() }
+                        NavEntry(key) { viewModel<HomeViewModel>() }
                     }
                     "AnotherScreen" -> {
-                        NavRecord(key) { viewModel<HomeViewModel>() }
+                        NavEntry(key) { viewModel<HomeViewModel>() }
                     }
                     else -> error("Unknown key: $key")
                 }
@@ -160,18 +155,14 @@ class ViewModelStoreNavContentWrapperTest {
         lateinit var viewModel: SavedStateViewModel
         composeTestRule.setContent {
             backStack = remember { mutableStateListOf("Home") }
-            val manager =
-                rememberNavWrapperManager(
-                    listOf(SavedStateNavContentWrapper, ViewModelStoreNavContentWrapper)
-                )
             NavDisplay(
                 backstack = backStack,
-                wrapperManager = manager,
+                localProviders = listOf(SavedStateNavLocalProvider, ViewModelStoreNavLocalProvider),
                 onBack = { backStack.removeAt(backStack.lastIndex) },
             ) { key ->
                 when (key) {
                     "Home" -> {
-                        NavRecord(key) {
+                        NavEntry(key) {
                             viewModel =
                                 viewModel<SavedStateViewModel> {
                                     val handle = createSavedStateHandle()

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 The Android Open Source Project
+ * Copyright 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,12 @@
  * limitations under the License.
  */
 
-package androidx.compose.runtime.collection
+@file:RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 
-/**
- * Equivalent of Array.copyInto() with an implementation designed to avoid unnecessary null checks
- * and exception throws on Android after inlining.
- */
-internal expect fun <T> Array<out T>.fastCopyInto(
-    destination: Array<T>,
-    destinationOffset: Int,
-    startIndex: Int,
-    endIndex: Int
-): Array<T>
+package androidx.room.concurrent
+
+import androidx.annotation.RestrictTo
+
+actual typealias AtomicInt = java.util.concurrent.atomic.AtomicInteger
+
+actual typealias AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean

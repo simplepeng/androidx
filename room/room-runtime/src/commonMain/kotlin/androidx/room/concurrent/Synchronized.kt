@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 The Android Open Source Project
+ * Copyright 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,13 +14,8 @@
  * limitations under the License.
  */
 
-@file:Suppress("NOTHING_TO_INLINE", "KotlinRedundantDiagnosticSuppress")
+package androidx.room.concurrent
 
-package androidx.compose.runtime.collection
+internal expect open class SynchronizedObject()
 
-internal actual inline fun <T> Array<out T>.fastCopyInto(
-    destination: Array<T>,
-    destinationOffset: Int,
-    startIndex: Int,
-    endIndex: Int
-): Array<T> = this.copyInto(destination, destinationOffset, startIndex, endIndex)
+internal expect inline fun <T> synchronized(lock: SynchronizedObject, block: () -> T): T
