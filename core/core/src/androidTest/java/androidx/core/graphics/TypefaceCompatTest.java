@@ -611,4 +611,10 @@ public class TypefaceCompatTest {
                     .isEqualTo("weight is out of range of [1, 1000] (too high)");
         }
     }
+
+    @Test
+    public void testRomanSemiB(){
+        Typeface typeface = ResourcesCompat.getFont(mContext, R.font.roman_semi_b);
+        assertNotNull(typeface);
+    }
 }
