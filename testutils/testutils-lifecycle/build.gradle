@@ -50,7 +50,8 @@ androidXMultiplatform {
     sourceSets {
         commonMain {
             dependencies {
-                api(project(":lifecycle:lifecycle-runtime"))
+//                api(project(":lifecycle:lifecycle-runtime"))
+                api("androidx.lifecycle:lifecycle-runtime:2.6.2")
                 api("androidx.annotation:annotation:1.8.1")
 
                 api(libs.kotlinStdlib)
